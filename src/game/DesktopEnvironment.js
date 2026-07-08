@@ -30,6 +30,10 @@ const TRASH_CAN_KEEPOUT_RADIUS = TRASH_CAN_RADIUS + 6;
 const TRASH_CAN_ENTRY_RING_INNER = TRASH_CAN_RADIUS * 0.7;
 const TRASH_CAN_ENTRY_RING_OUTER = TRASH_CAN_RADIUS * 0.95;
 
+const FRAGMENT_SAMPLE_ATTEMPTS = 30;
+const FRAGMENT_MIN_DISTANCE_FROM_SPAWN = 14;
+const FRAGMENT_MIN_DISTANCE_BETWEEN = 8;
+
 const WORLD_BOUNDS_WALL_HEIGHT = 16;
 const WORLD_BOUNDS_WALL_THICKNESS = 1.6;
 
@@ -281,6 +285,38 @@ export class DesktopEnvironment {
   samplePlayerSpawn(prng = this.prng) {
     const planar = this.spawnSampler.sample(prng) ?? { right: 0, forward: 0 };
     return this.basis.fromBasisComponents(planar.right, this.floorUp, planar.forward);
+  }
+
+  // Desktop-scattered fragment positions: away from the player's spawn point
+  // and from each other, never inside a folder or the trash can (same
+  // exclusions as samplePlayerSpawn, via the shared spawnSampler).
+  sampleFragmentPositions(count, prng = this.prng, spawnPlanar = { right: 0, forward: 0 }) {
+    const planarPoints = [];
+
+    for (let i = 0; i < count; i += 1) {
+      let accepted = null;
+      for (let attempt = 0; attempt < FRAGMENT_SAMPLE_ATTEMPTS; attempt += 1) {
+        const candidate = this.spawnSampler.sample(prng);
+        if (!candidate) break;
+
+        const farFromSpawn = Math.hypot(
+          candidate.right - spawnPlanar.right,
+          candidate.forward - spawnPlanar.forward
+        ) >= FRAGMENT_MIN_DISTANCE_FROM_SPAWN;
+        const farFromOthers = planarPoints.every((point) => Math.hypot(
+          candidate.right - point.right,
+          candidate.forward - point.forward
+        ) >= FRAGMENT_MIN_DISTANCE_BETWEEN);
+
+        if (farFromSpawn && farFromOthers) {
+          accepted = candidate;
+          break;
+        }
+      }
+      if (accepted) planarPoints.push(accepted);
+    }
+
+    return planarPoints.map((point) => this.basis.fromBasisComponents(point.right, this.floorUp, point.forward));
   }
 
   createStaticCuboidCollider(box, rotation, friction = 1) {

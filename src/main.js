@@ -8,8 +8,12 @@ import { AimResolver } from './modules/gameplay/AimResolver.js';
 import { GroundClickIndicator } from './modules/world/visual-effects/GroundClickIndicator.js';
 import { DesktopEnvironment } from './game/DesktopEnvironment.js';
 import { PlayerCursor } from './game/PlayerCursor.js';
+import { FragmentSystem } from './game/FragmentSystem.js';
+import { createHudView } from './game/HudView.js';
 
 const WORLD_SIZE = 70;
+const DEFAULT_FILE_NAME = 'page.html';
+const MAX_FILE_NAME_LENGTH = 40;
 const GRAVITY_MAGNITUDE = 9.81;
 // Cap the frame delta so a backgrounded tab does not produce a huge physics step.
 const MAX_DELTA_SECONDS = 0.1;
@@ -83,6 +87,17 @@ function createKeyboardState() {
   return keyboard;
 }
 
+// Minimal safety net so the HUD never renders a broken/oversized string.
+// Phase 7 formalizes the full sanitization contract for the `path` query param.
+function getRequestedFileName() {
+  const rawPath = new URLSearchParams(window.location.search).get('path');
+  if (!rawPath) return DEFAULT_FILE_NAME;
+
+  const lastSegment = rawPath.split('/').filter(Boolean).pop() ?? '';
+  const safeSegment = lastSegment.replace(/[^a-zA-Z0-9._-]/g, '').slice(0, MAX_FILE_NAME_LENGTH);
+  return safeSegment || DEFAULT_FILE_NAME;
+}
+
 function pointerEventToNdc(event, canvas) {
   const rect = canvas.getBoundingClientRect();
   return {
@@ -124,7 +139,7 @@ function setupClickToMove({ canvas, camera, playerCursor, environment, scene, ba
   };
 }
 
-function start({ renderer, scene, camera, playerCursor, environment }) {
+function start({ renderer, scene, camera, playerCursor, environment, fragmentSystem }) {
   const clock = new Clock();
   let previousSeconds = clock.nowSeconds();
   let firstFrame = true;
@@ -162,6 +177,7 @@ function start({ renderer, scene, camera, playerCursor, environment }) {
     firstFrame = false;
 
     clickToMove.update(deltaSeconds);
+    fragmentSystem.update(deltaSeconds, snapshot.position);
 
     // No explicit physicsWorld.step() here: PlayerCursor.update() already steps
     // the world once per frame via KinematicBatchResolver.resolveQueuedMoves().
@@ -188,10 +204,24 @@ const playerCursor = new PlayerCursor({
   spawnPosition: playerSpawn,
 });
 
+const fragmentSystem = new FragmentSystem({
+  scene,
+  environment,
+  basis,
+  playerSpawnPosition: playerSpawn,
+  fileName: getRequestedFileName(),
+});
+createHudView({
+  uiState: fragmentSystem.uiState,
+  notifications: fragmentSystem.notifications,
+  fileName: fragmentSystem.fileName,
+});
+
 start({
   renderer: createRenderer(document.getElementById('game-canvas')),
   scene,
   camera: createCamera(),
   playerCursor,
   environment,
+  fragmentSystem,
 });

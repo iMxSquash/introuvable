@@ -35,3 +35,16 @@ file (kinematic character movement and collider creation work fine without them 
 | `camera/PositionFollowCameraRig.js` | Follows a target position at a fixed azimuth/height/distance, always looking at it | Reused as-is | None | High isometric-style camera following the cursor in `src/main.js` |
 | `gameplay/AimResolver.js` | Resolves screen-space aim into a world hit position | Reused as-is | None | Converts pointer/tap coordinates into the ground point used as the click-to-move target |
 | `world/visual-effects/GroundClickIndicator.js` | Fading ground marker for click feedback | Reused as-is | None | Spawned on every successful click-to-move aim in `src/main.js`, doubling as the cursor's click feedback per the TODO |
+| `world/object/PickupObject.js` | Positions a pickup visual, bobs/spins it each frame, disposes it on collection | Reused as-is | None | `src/game/FragmentSystem.js` wraps every fragment mesh in a `PickupObject`; animation and disposal are entirely handled by the module |
+| `world/object/factory/PickupVisualFactory.js` | Dispatches a pickup `type` to a mesh-building function (ammo/health/armor) | **Adapted** | Added `buildFileFragmentVisual()` (torn white paper silhouette, folded via a post-extrude vertex bend around the tear's anchor vertex, soft blue emissive) and a `'fragment'`/`'fragment-final'` branch in `createPickupVisual()`, following the file's existing per-type dispatch pattern | `FragmentSystem._spawnPickup()` |
+| `user-interface/UiStateModel.js` | Observable state container with `patch`/`subscribe` | Reused as-is | None | `FragmentSystem.uiState` tracks `collectedCount`, `desktopRevealCount`, `fileNameRevealed` |
+| `user-interface/DomHudRenderer.js` | Declarative bindings from state keys to DOM text/attributes | Reused as-is | None | `src/game/HudView.js` binds the Finder path bar and the fragment counter badge |
+| `user-interface/NotificationQueue.js` | Time-limited visible/pending notification queue | Reused as-is | None | `FragmentSystem.notifications`; ticked every frame, rendered as macOS-style toasts by `HudView.js` |
+
+Phase 3 design note: the Corbeille's fragment (`type: 'fragment-final'`) can be collected before the 6
+desktop fragments since Phase 4's guarded interior doesn't exist yet. The Finder path formatter in
+`HudView.js` only appends the filename once every folder segment ahead of it is also revealed, so the
+path never shows the filename out of order even if the final fragment is grabbed first; verified with a
+scripted full 7/7 collection run. The `?path=` query filename is parsed and sanitized minimally
+(character allowlist, length cap) in `main.js`'s `getRequestedFileName()`; Phase 7 formalizes the full
+sanitization contract described in the TODO.
