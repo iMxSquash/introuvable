@@ -4,6 +4,35 @@
   box-sizing: border-box;
 }
 
+:root {
+  /* Light theme (default): matches the portfolio's default look. Switched to
+     the dark variant below via `?theme=dark` (see main.js), which stamps
+     `data-theme="dark"` on <html>. */
+  --panel-bg: rgb(255 255 255 / 72%);
+  --panel-bg-strong: rgb(255 255 255 / 92%);
+  --panel-text: #1d1d1f;
+  --panel-text-secondary: #6e6e73;
+  --toast-bg: rgb(255 255 255 / 82%);
+  --finder-bg: rgb(246 246 248 / 97%);
+  --finder-titlebar-bg: rgb(0 0 0 / 4%);
+  --finder-border: rgb(0 0 0 / 8%);
+  --finder-title-text: #3a3a3c;
+  --start-screen-bg: radial-gradient(circle at 50% 40%, #3a4a63 0%, #1d1d1f 75%);
+}
+
+:root[data-theme='dark'] {
+  --panel-bg: rgb(44 44 48 / 74%);
+  --panel-bg-strong: rgb(38 38 42 / 92%);
+  --panel-text: #f5f5f7;
+  --panel-text-secondary: #98989d;
+  --toast-bg: rgb(48 48 52 / 84%);
+  --finder-bg: rgb(40 40 44 / 97%);
+  --finder-titlebar-bg: rgb(255 255 255 / 6%);
+  --finder-border: rgb(255 255 255 / 10%);
+  --finder-title-text: #e5e5e7;
+  --start-screen-bg: radial-gradient(circle at 50% 40%, #171a22 0%, #050506 75%);
+}
+
 html,
 body {
   margin: 0;
@@ -28,19 +57,20 @@ body {
   align-items: center;
   justify-content: space-between;
   gap: 0.75rem;
-  padding: 0.6rem 1rem;
+  padding: max(0.6rem, env(safe-area-inset-top)) max(1rem, env(safe-area-inset-right)) 0.6rem
+    max(1rem, env(safe-area-inset-left));
   pointer-events: none;
   font-family: -apple-system, BlinkMacSystemFont, 'Inter', sans-serif;
 }
 
 .hud__finder-path,
 .hud__fragment-counter {
-  background: rgb(255 255 255 / 72%);
+  background: var(--panel-bg);
   backdrop-filter: blur(16px);
   -webkit-backdrop-filter: blur(16px);
   border-radius: 999px;
   padding: 0.4rem 0.9rem;
-  color: #1d1d1f;
+  color: var(--panel-text);
   font-size: 0.85rem;
   box-shadow: 0 1px 3px rgb(0 0 0 / 15%);
 }
@@ -60,8 +90,8 @@ body {
 
 .toast-container {
   position: fixed;
-  top: 3.4rem;
-  right: 1rem;
+  top: calc(3.4rem + env(safe-area-inset-top));
+  right: max(1rem, env(safe-area-inset-right));
   display: flex;
   flex-direction: column;
   align-items: flex-end;
@@ -71,12 +101,12 @@ body {
 }
 
 .toast {
-  background: rgb(255 255 255 / 82%);
+  background: var(--toast-bg);
   backdrop-filter: blur(16px);
   -webkit-backdrop-filter: blur(16px);
   border-radius: 0.75rem;
   padding: 0.55rem 1rem;
-  color: #1d1d1f;
+  color: var(--panel-text);
   font-size: 0.85rem;
   font-weight: 500;
   box-shadow: 0 2px 8px rgb(0 0 0 / 18%);
@@ -172,8 +202,10 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: radial-gradient(circle at 50% 40%, #3a4a63 0%, #1d1d1f 75%);
+  background: var(--start-screen-bg);
   cursor: pointer;
+  padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom)
+    env(safe-area-inset-left);
 }
 
 .start-screen__panel {
@@ -181,13 +213,13 @@ body {
   margin: 0 1.5rem;
   padding: 2rem 2.2rem;
   text-align: center;
-  background: rgb(255 255 255 / 92%);
+  background: var(--panel-bg-strong);
   backdrop-filter: blur(16px);
   -webkit-backdrop-filter: blur(16px);
   border-radius: 1rem;
   box-shadow: 0 12px 40px rgb(0 0 0 / 35%);
   font-family: -apple-system, BlinkMacSystemFont, 'Inter', sans-serif;
-  color: #1d1d1f;
+  color: var(--panel-text);
 }
 
 .start-screen__message {
@@ -205,7 +237,7 @@ body {
 .start-screen__restored-count {
   margin: 0;
   font-size: 0.8rem;
-  color: #6e6e73;
+  color: var(--panel-text-secondary);
 }
 
 .finder-window-overlay[hidden] {
@@ -226,7 +258,7 @@ body {
 
 .finder-window {
   width: min(90vw, 22rem);
-  background: rgb(246 246 248 / 97%);
+  background: var(--finder-bg);
   border-radius: 0.75rem;
   overflow: hidden;
   box-shadow: 0 20px 60px rgb(0 0 0 / 45%);
@@ -256,8 +288,8 @@ body {
   align-items: center;
   gap: 0.4rem;
   padding: 0.65rem 0.8rem;
-  background: rgb(0 0 0 / 4%);
-  border-bottom: 1px solid rgb(0 0 0 / 8%);
+  background: var(--finder-titlebar-bg);
+  border-bottom: 1px solid var(--finder-border);
 }
 
 .finder-window__dot {
@@ -282,7 +314,7 @@ body {
   margin-left: 0.4rem;
   font-size: 0.8rem;
   font-weight: 600;
-  color: #3a3a3c;
+  color: var(--finder-title-text);
 }
 
 .finder-window__body {
@@ -334,7 +366,7 @@ body {
   display: flex;
   justify-content: flex-end;
   padding: 0.75rem 1rem;
-  border-top: 1px solid rgb(0 0 0 / 8%);
+  border-top: 1px solid var(--finder-border);
 }
 
 .finder-window__open-button {

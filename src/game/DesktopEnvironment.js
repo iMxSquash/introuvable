@@ -41,10 +41,26 @@ const WORLD_BOUNDS_WALL_HEIGHT = 16;
 const WORLD_BOUNDS_WALL_THICKNESS = 1.6;
 
 const AMBIENT_LIGHT_COLOR = 0xffffff;
-const AMBIENT_LIGHT_INTENSITY = 0.65;
-const DIRECTIONAL_LIGHT_COLOR = 0xfff3e0;
-const DIRECTIONAL_LIGHT_INTENSITY = 1.15;
 const SHADOW_MAP_SIZE = 2048;
+
+// Selected via the optional `?theme=dark|light` integration contract (see
+// main.js) so the desktop can match the portfolio's own theme.
+const THEME_PALETTES = {
+  light: {
+    skyColor: PLACEHOLDER_SKY_COLOR,
+    groundColor: PLACEHOLDER_GROUND_COLOR,
+    ambientIntensity: 0.65,
+    directionalColor: 0xfff3e0,
+    directionalIntensity: 1.15,
+  },
+  dark: {
+    skyColor: 0x1c2230,
+    groundColor: 0x3a4152,
+    ambientIntensity: 0.42,
+    directionalColor: 0xdce6ff,
+    directionalIntensity: 0.85,
+  },
+};
 
 const folderBodyGeometry = new THREE.BoxGeometry(
   FOLDER_BODY_SIZE.right,
@@ -93,6 +109,7 @@ export class DesktopEnvironment {
     basis = DEFAULT_WORLD_BASIS,
     prng = DEFAULT_PRNG,
     wallpaperTexture = null,
+    theme = 'light',
   }) {
     this.scene = scene;
     this.worldSize = worldSize;
@@ -100,6 +117,7 @@ export class DesktopEnvironment {
     this.basis = basis;
     this.prng = prng;
     this.wallpaperTexture = wallpaperTexture;
+    this.palette = THEME_PALETTES[theme] ?? THEME_PALETTES.light;
 
     this.objectRotation = this.basis.threeObjectCanonicalToBasisQuaternion();
     this.planeRotation = this.basis.threePlaneCanonicalToBasisQuaternion();
@@ -122,9 +140,9 @@ export class DesktopEnvironment {
   }
 
   create() {
-    this.scene.background = new THREE.Color(PLACEHOLDER_SKY_COLOR);
+    this.scene.background = new THREE.Color(this.palette.skyColor);
     this.scene.fog = new THREE.Fog(
-      PLACEHOLDER_SKY_COLOR,
+      this.palette.skyColor,
       this.worldSize * 0.35,
       this.worldSize * 0.95
     );
@@ -138,12 +156,12 @@ export class DesktopEnvironment {
   }
 
   createLighting() {
-    const ambientLight = new THREE.AmbientLight(AMBIENT_LIGHT_COLOR, AMBIENT_LIGHT_INTENSITY);
+    const ambientLight = new THREE.AmbientLight(AMBIENT_LIGHT_COLOR, this.palette.ambientIntensity);
     this.group.add(ambientLight);
 
     const directionalLight = new THREE.DirectionalLight(
-      DIRECTIONAL_LIGHT_COLOR,
-      DIRECTIONAL_LIGHT_INTENSITY
+      this.palette.directionalColor,
+      this.palette.directionalIntensity
     );
     directionalLight.position.copy(
       this.basis.fromBasisComponents(this.worldSize * 0.25, this.worldSize * 0.5, -this.worldSize * 0.2)
@@ -162,7 +180,7 @@ export class DesktopEnvironment {
 
   createGround() {
     const material = new THREE.MeshStandardMaterial({
-      color: this.wallpaperTexture ? 0xffffff : PLACEHOLDER_GROUND_COLOR,
+      color: this.wallpaperTexture ? 0xffffff : this.palette.groundColor,
       map: this.wallpaperTexture,
       roughness: 1,
       metalness: 0,

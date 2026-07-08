@@ -142,3 +142,27 @@ code from Phases 1-5:
   404, elle peut rester ouverte en fond" note - no GPU/battery burned while not visible.
 - No numeric FPS measurement was taken (no profiler available in this environment) - the target is
   addressed by the shared-resource and no-per-frame-allocation work above, not verified with a number.
+
+Phase 7 (query param contract & mobile) needed no new GameBlocks module either:
+- `?path=` sanitization (length cap, character allowlist, `page.html` fallback) was already implemented
+  in Phase 3's `getRequestedFileName()`; this phase just confirms/documents it as the finalized contract
+  rather than a placeholder.
+- `?theme=dark|light` (optional, defaults to `light`, any other value also falls back to `light`):
+  `main.js`'s `getRequestedTheme()` stamps `data-theme` on `<html>`, and `style.css` defines the
+  light/dark panel colors as CSS custom properties overridden under `:root[data-theme='dark']` (HUD,
+  toasts, start screen, Finder window). `DesktopEnvironment` gained a `theme` constructor option
+  selecting a `THEME_PALETTES` entry for the sky/ground/ambient/directional light colors; the Trash Can
+  interior stays dark regardless of theme by design (Phase 4's "ambiance plus sombre" is independent of
+  the portfolio's own light/dark mode). Verified both themes render distinctly via headless screenshots.
+- Mobile/touch: click-to-move already used `pointerdown` (Phase 2), which handles touch natively: no
+  code change needed, verified with a real touch-emulated tap (Playwright `hasTouch`/`isMobile`/
+  `touchscreen.tap`) correctly setting a move target. Added `viewport-fit=cover` to the `<meta viewport>`
+  tag (required for `env(safe-area-inset-*)` to resolve to non-zero values at all) and safe-area-aware
+  padding on `.hud` and `.toast-container`, the two overlays that hug screen edges/corners. The camera
+  rig gains a small height/distance bump (`getCameraRigOptions()`) below a 820px viewport width, per the
+  TODO's "caméra légèrement plus haute" note; this is computed once at load, not re-evaluated on
+  orientation change/resize (acceptable given the modest ask - a rotation mid-game just keeps whichever
+  height was computed at load).
+- Not done: testing on a real physical phone (Playwright's touch/viewport emulation is not equivalent to
+  real hardware - the TODO explicitly asks for this separately; flagging rather than claiming it as
+  verified).

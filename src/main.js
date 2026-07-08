@@ -36,6 +36,14 @@ const CAMERA_RIG_OPTIONS = {
   positionLag: 0.15,
   lookLag: 0.12,
 };
+// A narrow/portrait viewport (phone, tablet in the portfolio's iOS mode) sees
+// less of the world at a given height; pull the camera back and up a bit to
+// compensate, per the TODO's "caméra légèrement plus haute" note.
+const NARROW_VIEWPORT_MAX_WIDTH = 820;
+const NARROW_VIEWPORT_HEIGHT_BONUS = 6;
+const NARROW_VIEWPORT_DISTANCE_BONUS = 2;
+
+const THEMES = { light: 'light', dark: 'dark' };
 
 const DESKTOP_GUARD_PATROL_RADIUS = 10;
 const DESKTOP_GUARD_WAYPOINT_COUNT = 8;
@@ -110,8 +118,9 @@ function createKeyboardState() {
   return keyboard;
 }
 
-// Minimal safety net so the HUD never renders a broken/oversized string.
-// Phase 7 formalizes the full sanitization contract for the `path` query param.
+// Integration contract with the portfolio's `?path=` query param: max length,
+// safe character allowlist, fallback to a default name for anything else
+// (missing param, empty slug, unicode-only slug, injection attempts...).
 function getRequestedFileName() {
   const rawPath = new URLSearchParams(window.location.search).get('path');
   if (!rawPath) return DEFAULT_FILE_NAME;
@@ -119,6 +128,22 @@ function getRequestedFileName() {
   const lastSegment = rawPath.split('/').filter(Boolean).pop() ?? '';
   const safeSegment = lastSegment.replace(/[^a-zA-Z0-9._-]/g, '').slice(0, MAX_FILE_NAME_LENGTH);
   return safeSegment || DEFAULT_FILE_NAME;
+}
+
+// Optional `?theme=dark|light` contract so the portfolio can match its own
+// theme; anything else (missing, garbage) keeps the game's own default look.
+function getRequestedTheme() {
+  const rawTheme = new URLSearchParams(window.location.search).get('theme');
+  return rawTheme === THEMES.dark ? THEMES.dark : THEMES.light;
+}
+
+function getCameraRigOptions() {
+  const isNarrowViewport = window.innerWidth < NARROW_VIEWPORT_MAX_WIDTH;
+  return {
+    ...CAMERA_RIG_OPTIONS,
+    height: CAMERA_RIG_OPTIONS.height + (isNarrowViewport ? NARROW_VIEWPORT_HEIGHT_BONUS : 0),
+    distance: CAMERA_RIG_OPTIONS.distance + (isNarrowViewport ? NARROW_VIEWPORT_DISTANCE_BONUS : 0),
+  };
 }
 
 function buildCirclePatrol({ center, radius, count, angleOffset, floorUp, basis }) {
@@ -326,7 +351,7 @@ function start({
   let firstFrame = true;
 
   const keyboard = createKeyboardState();
-  const cameraRig = new PositionFollowCameraRig({ ...CAMERA_RIG_OPTIONS, basis });
+  const cameraRig = new PositionFollowCameraRig({ ...getCameraRigOptions(), basis });
   const clickToMove = setupClickToMove({
     canvas: renderer.domElement,
     camera,
@@ -391,10 +416,13 @@ function start({
   });
 }
 
+const theme = getRequestedTheme();
+document.documentElement.dataset.theme = theme;
+
 const physicsWorld = await createPhysicsWorld();
 
 const scene = new Scene();
-const environment = new DesktopEnvironment({ scene, worldSize: WORLD_SIZE, basis });
+const environment = new DesktopEnvironment({ scene, worldSize: WORLD_SIZE, basis, theme });
 environment.create();
 environment.createPhysicsColliders(physicsWorld, RAPIER);
 
