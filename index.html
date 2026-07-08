@@ -16,6 +16,34 @@
     <div id="force-quit-overlay" class="force-quit-overlay" role="status" aria-live="assertive">
       <span class="force-quit-overlay__label">Force Quit</span>
     </div>
+    <div id="start-screen" class="start-screen" role="button" tabindex="0" aria-label="Cliquer pour rechercher le fichier">
+      <div class="start-screen__panel">
+        <p class="start-screen__message">Le fichier que vous cherchiez a été déplacé dans la Corbeille.</p>
+        <p class="start-screen__prompt">Cliquez pour rechercher le fichier</p>
+        <p id="start-screen-restored-count" class="start-screen__restored-count"></p>
+      </div>
+    </div>
+    <div id="finder-window-overlay" class="finder-window-overlay" hidden>
+      <div class="finder-window" role="dialog" aria-modal="true" aria-labelledby="finder-window-title">
+        <div class="finder-window__titlebar">
+          <span class="finder-window__dot finder-window__dot--red"></span>
+          <span class="finder-window__dot finder-window__dot--yellow"></span>
+          <span class="finder-window__dot finder-window__dot--green"></span>
+          <span id="finder-window-title" class="finder-window__title">Bureau</span>
+        </div>
+        <div class="finder-window__body">
+          <div class="finder-window__file">
+            <div class="finder-window__file-icon">
+              <span class="finder-window__file-fold"></span>
+            </div>
+            <span id="finder-window-filename" class="finder-window__file-name"></span>
+          </div>
+        </div>
+        <div class="finder-window__footer">
+          <button id="finder-window-open" type="button" class="finder-window__open-button">Ouvrir</button>
+        </div>
+      </div>
+    </div>
     <script type="module" src="/src/main.js"></script>
   </body>
 </html>

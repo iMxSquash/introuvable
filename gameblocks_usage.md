@@ -85,3 +85,30 @@ version re-triggered the opposite transition as soon as a time-based cooldown ex
 stood still exactly on the arrival point (both trigger points are where `transitionTo` actually drops
 the player). Fixed with a re-arm gate: after any transition, the same trigger cannot fire again until
 the player has moved more than `ZONE_REARM_RADIUS` away from where they were dropped.
+
+| `user-interface/StorageSettingsStore.js` | JSON-backed localStorage read/write with safe fallbacks | Reused as-is | None | `src/game/GameProgress.js` wraps a `JsonSettingsStore` (`introuvable-progress` key) tracking `restoredCount` and `bestTimeMs`, updated once per completed restoration |
+
+New for Phase 5 (no direct GameBlocks module): `src/game/FileIconMesh.js` builds the restored file's 3D
+icon (document + folded corner, `ExtrudeGeometry` + `Shape`, same technique as the guard/cursor
+meshes). `src/game/RestorationCinematic.js` orchestrates the short scripted beat once the 7th fragment
+lands: 4 small `buildFileFragmentVisual()` shards (reused from Phase 3, scaled down) converge above the
+cursor into the file icon over ~0.9s, then calls back. `src/game/RestoreSound.js` and
+`src/game/StartScreen.js`/`src/game/ForceQuitEffect.js`/`src/game/PickupSound.js` all share one
+`AudioContext` via `AudioContextSingleton.js`. `src/game/FinderWindow.js` shows the static (hidden by
+default) Finder-styled DOM dialog from `index.html` with the restored filename selected and an "Ouvrir"
+button that navigates `window.top.location` to the portfolio (falls back to `window.location` if
+`window.top` throws, e.g. a sandboxed iframe without top-navigation permission).
+
+Known bug found in Phase 5: the Finder window overlay was given `hidden` in `index.html` but also a
+class rule `.finder-window-overlay { display: flex; ... }` in `style.css`. Author-stylesheet class rules
+and the `[hidden]` UA-stylesheet rule have equal specificity, so the class rule won without an explicit
+override, and the dialog rendered (and intercepted clicks) even while `hidden` was set - as soon as the
+DOM existed, before any fragment was even collected. Fixed with an explicit
+`.finder-window-overlay[hidden] { display: none; }` rule ahead of the base rule.
+
+Design note: gameplay (movement, guards, click-to-move, fragment collection) only starts once
+`createStartScreen`'s `onStart` fires from the player's first click/Enter/Space on the start screen -
+`start()` (which attaches input listeners and begins the render loop) is called from inside that
+callback rather than unconditionally at module load. This both gates the "cliquez pour rechercher le
+fichier" diegetic intro and, since the same click synchronously calls `getSharedAudioContext()`, unlocks
+autoplay for every synthesized sound effect used later (pickup pop, Force Quit alert, restore chime).

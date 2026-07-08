@@ -13,6 +13,10 @@ import { createHudView } from './game/HudView.js';
 import { TrashCanInterior } from './game/TrashCanInterior.js';
 import { Guard } from './game/Guard.js';
 import { triggerForceQuitEffect } from './game/ForceQuitEffect.js';
+import { GameProgress } from './game/GameProgress.js';
+import { RestorationCinematic } from './game/RestorationCinematic.js';
+import { createFinderWindow } from './game/FinderWindow.js';
+import { createStartScreen } from './game/StartScreen.js';
 
 const WORLD_SIZE = 70;
 const DEFAULT_FILE_NAME = 'page.html';
@@ -306,7 +310,17 @@ function setupClickToMove({ canvas, camera, playerCursor, environment, scene, ba
   };
 }
 
-function start({ renderer, scene, camera, playerCursor, environment, fragmentSystem, trashCanChallenge }) {
+function start({
+  renderer,
+  scene,
+  camera,
+  playerCursor,
+  environment,
+  fragmentSystem,
+  trashCanChallenge,
+  cinematic,
+  isGameEnded,
+}) {
   const clock = new Clock();
   let previousSeconds = clock.nowSeconds();
   let firstFrame = true;
@@ -334,22 +348,27 @@ function start({ renderer, scene, camera, playerCursor, environment, fragmentSys
     const deltaSeconds = clamp(nowSeconds - previousSeconds, 0, MAX_DELTA_SECONDS);
     previousSeconds = nowSeconds;
 
-    playerCursor.update({ deltaSeconds, keyboard });
-    trashCanChallenge.update(deltaSeconds, performance.now());
-    // Read the position fresh: trashCanChallenge.update() may have just
-    // teleported the player (zone transition or Force Quit).
-    const playerPosition = playerCursor.position;
+    // Once the last fragment is restored, freeze normal gameplay (movement,
+    // guards, click-to-move) and let only the restoration cinematic play.
+    if (!isGameEnded()) {
+      playerCursor.update({ deltaSeconds, keyboard });
+      trashCanChallenge.update(deltaSeconds, performance.now());
+      // Read the position fresh: trashCanChallenge.update() may have just
+      // teleported the player (zone transition or Force Quit).
+      const playerPosition = playerCursor.position;
 
-    cameraRig.step({
-      targetPosition: playerPosition,
-      deltaSeconds,
-      camera,
-      snapToTarget: firstFrame || trashCanChallenge.consumeCameraSnap(),
-    });
-    firstFrame = false;
+      cameraRig.step({
+        targetPosition: playerPosition,
+        deltaSeconds,
+        camera,
+        snapToTarget: firstFrame || trashCanChallenge.consumeCameraSnap(),
+      });
+      firstFrame = false;
 
-    clickToMove.update(deltaSeconds);
-    fragmentSystem.update(deltaSeconds, playerPosition);
+      clickToMove.update(deltaSeconds);
+      fragmentSystem.update(deltaSeconds, playerPosition);
+    }
+    cinematic.update(deltaSeconds);
 
     // No explicit physicsWorld.step() here: PlayerCursor.update() already steps
     // the world once per frame via KinematicBatchResolver.resolveQueuedMoves().
@@ -393,12 +412,38 @@ createHudView({
   fileName: fragmentSystem.fileName,
 });
 
-start({
-  renderer: createRenderer(document.getElementById('game-canvas')),
-  scene,
-  camera: createCamera(),
-  playerCursor,
-  environment,
-  fragmentSystem,
-  trashCanChallenge,
+const gameProgress = new GameProgress();
+const cinematic = new RestorationCinematic({ scene, basis });
+
+let gameEnded = false;
+let gameStartAtMs = null;
+
+fragmentSystem.uiState.subscribe((state) => {
+  if (gameEnded || state.collectedCount < state.totalCount) return;
+  gameEnded = true;
+
+  const elapsedMs = gameStartAtMs == null ? 0 : performance.now() - gameStartAtMs;
+  cinematic.play(playerCursor.position, () => {
+    gameProgress.recordRestoration(elapsedMs);
+    createFinderWindow({ fileName: fragmentSystem.fileName }).show();
+  });
+});
+
+createStartScreen({
+  restoredCount: gameProgress.getRestoredCount(),
+  bestTimeMs: gameProgress.getBestTimeMs(),
+  onStart() {
+    gameStartAtMs = performance.now();
+    start({
+      renderer: createRenderer(document.getElementById('game-canvas')),
+      scene,
+      camera: createCamera(),
+      playerCursor,
+      environment,
+      fragmentSystem,
+      trashCanChallenge,
+      cinematic,
+      isGameEnded: () => gameEnded,
+    });
+  },
 });
