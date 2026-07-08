@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <path d="M14 4h26l10 10v46a4 4 0 0 1-4 4H14a4 4 0 0 1-4-4V8a4 4 0 0 1 4-4z"
+        fill="#9aa3ab" fill-opacity="0.55" stroke="#6b7280" stroke-width="2" stroke-dasharray="4 3" />
+  <path d="M40 4v10h10" fill="none" stroke="#6b7280" stroke-width="2" />
+  <text x="32" y="43" font-family="-apple-system, Helvetica, Arial, sans-serif" font-size="22"
+        font-weight="700" fill="#6b7280" text-anchor="middle">?</text>
+</svg>

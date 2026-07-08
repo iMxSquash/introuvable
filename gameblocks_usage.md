@@ -166,3 +166,45 @@ Phase 7 (query param contract & mobile) needed no new GameBlocks module either:
 - Not done: testing on a real physical phone (Playwright's touch/viewport emulation is not equivalent to
   real hardware - the TODO explicitly asks for this separately; flagging rather than claiming it as
   verified).
+
+Phase 8 (Vercel deployment & embed compliance) needed no GameBlocks module; it ran the project's
+`portfolio-embed-check` skill and applied its findings:
+- `vercel.json` added with `Content-Security-Policy: frame-ancestors 'self' https://elwen.dev
+  https://*.elwen.dev` (the TODO's exact value) and no `X-Frame-Options` (Vite/Vercel don't add one by
+  default for a static build, so there was nothing to remove).
+- Audited for the skill's cross-origin pitfalls: the only `window.top` usage
+  (`FinderWindow.js`'s "Ouvrir" redirect) was already try/catch-protected since Phase 5; no `<a>` tags
+  anywhere in the app, so no missing `target="_blank"`/`rel="noopener"` cases; no cookies at all (only
+  `localStorage` via `GameProgress`, which the skill confirms works fine per-origin regardless of
+  embedding).
+- Fixed a real touch-target gap the skill's mobile section calls out: the Finder window's "Ouvrir"
+  button was ~29px tall (font + padding), under the 44px minimum this project's own CLAUDE.md already
+  mandates. Added `min-width`/`min-height: 44px` with flex centering.
+- The resize handler now coalesces to one update per animation frame (`requestAnimationFrame`-throttled)
+  instead of running the full camera/renderer resize on every single `resize` event. Deliberately not a
+  timeout-based debounce as the skill's generic wording suggests: a WebGL canvas needs to keep visually
+  tracking the portfolio's live window drag, and a timeout delay would make it visibly lag behind the
+  window edge during a continuous resize - the rAF throttle avoids redundant work without that lag.
+  Verified via a real resizable-`<div>` + `<iframe>` embed test down to 360px width with no console
+  errors.
+- SEO: title and meta description added; `public/favicon.svg` is a dashed-outline, semi-transparent
+  document icon with a "?" - literally the "favicon fichier-fantôme" the TODO asks for, no `noindex` per
+  its explicit instruction to stay discoverable.
+- Conscious exception flagged rather than silently overridden: the skill's generic advice says the
+  embedded app should be "presentable without prior interaction, no blocking onboarding modal" - this
+  project's start screen (Phase 5) is exactly such a gate, but it's load-bearing by design: it supplies
+  the diegetic "cliquez pour rechercher le fichier" framing the TODO itself asks for, and is also the
+  user gesture that unlocks the Web Audio context (no sound would ever play in the iframe without it).
+  Not changed; noting the tension rather than picking a side unilaterally.
+- Bundle weight (~1 MB gzipped, Three + Rapier) was not reduced - Phase 8's own TODO wording defers the
+  actual mitigation to Phase 9 (`<link rel="preconnect">` from the portfolio's 404 page before the iframe
+  ever loads this app); there is no "before interaction" state to lazy-load within this repo itself, the
+  portfolio not creating the iframe until the user clicks already achieves that deferral.
+- Not done: the actual Vercel project creation, `introuvable.elwen.dev` domain attachment, and header
+  verification against a live deployment (`curl -sI` from the skill's checklist) - `vercel whoami` came
+  back unauthenticated in this environment and no `.vercel` project link exists yet. This needs the
+  user's own Vercel account; flagging rather than fabricating a deployment that didn't happen.
+
+Embed-check verdict: **ready for `iframe` mode** once deployed, with the two notes above (intentional
+start-screen gate; bundle weight mitigated by the portfolio's own click-before-embed flow, not by this
+repo).

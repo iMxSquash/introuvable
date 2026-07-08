@@ -361,11 +361,22 @@ function start({
     basis,
   });
 
+  // rAF-throttled: the portfolio embeds this in a continuously resizable
+  // desktop window, which fires many resize events per drag. Coalescing to
+  // one update per rendered frame avoids redundant framebuffer reallocations
+  // without the visible lag a timeout-based debounce would add here (the
+  // canvas should keep visually tracking the window during the drag).
+  let resizePending = false;
   window.addEventListener('resize', () => {
-    camera.aspect = window.innerWidth / window.innerHeight;
-    camera.updateProjectionMatrix();
-    renderer.setSize(window.innerWidth, window.innerHeight);
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, MAX_PIXEL_RATIO));
+    if (resizePending) return;
+    resizePending = true;
+    requestAnimationFrame(() => {
+      resizePending = false;
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+      renderer.setPixelRatio(Math.min(window.devicePixelRatio, MAX_PIXEL_RATIO));
+    });
   });
 
   function frame() {
