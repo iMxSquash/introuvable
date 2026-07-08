@@ -99,3 +99,68 @@ body {
     transform: translateY(0);
   }
 }
+
+.force-quit-overlay {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgb(20 8 8 / 55%);
+  opacity: 0;
+  pointer-events: none;
+  z-index: 10;
+}
+
+.force-quit-overlay__label {
+  font-family: -apple-system, BlinkMacSystemFont, 'Inter', sans-serif;
+  font-size: 1.6rem;
+  font-weight: 600;
+  color: #fff;
+  text-shadow: 0 1px 4px rgb(0 0 0 / 40%);
+  opacity: 0;
+}
+
+.force-quit-overlay--flash {
+  animation: force-quit-flash 650ms ease-out;
+}
+
+.force-quit-overlay--flash .force-quit-overlay__label {
+  animation: force-quit-label 650ms ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .force-quit-overlay--flash,
+  .force-quit-overlay--flash .force-quit-overlay__label {
+    animation: none;
+  }
+}
+
+@keyframes force-quit-flash {
+  0% {
+    opacity: 0;
+  }
+  15% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
+@keyframes force-quit-label {
+  0% {
+    opacity: 0;
+    transform: scale(0.92);
+  }
+  20% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  80% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+  }
+}

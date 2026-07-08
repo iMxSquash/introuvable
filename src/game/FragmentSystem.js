@@ -14,7 +14,14 @@ const NOTIFICATION_LIFETIME_MS = 1800;
 const NOTIFICATION_MAX_VISIBLE = 3;
 
 export class FragmentSystem {
-  constructor({ scene, environment, basis = DEFAULT_WORLD_BASIS, playerSpawnPosition, fileName }) {
+  constructor({
+    scene,
+    environment,
+    basis = DEFAULT_WORLD_BASIS,
+    playerSpawnPosition,
+    finalFragmentPosition,
+    fileName,
+  }) {
     this.scene = scene;
     this.basis = basis;
     this.fileName = fileName;
@@ -29,11 +36,10 @@ export class FragmentSystem {
 
     const spawnPlanar = basis.toPlanar(playerSpawnPosition);
     const desktopPositions = environment.sampleFragmentPositions(DESKTOP_FRAGMENT_COUNT, environment.prng, spawnPlanar);
-    const finalPosition = environment.trashCanPosition.clone();
 
     this.pickups = [
       ...desktopPositions.map((position, index) => this._spawnPickup(position, `fragment-${index}`, 'fragment')),
-      this._spawnPickup(finalPosition, 'fragment-final', 'fragment-final'),
+      this._spawnPickup(finalFragmentPosition.clone(), 'fragment-final', 'fragment-final'),
     ];
   }
 
@@ -58,8 +64,11 @@ export class FragmentSystem {
       const pickup = this.pickups[index];
       pickup.animate(deltaSeconds);
 
+      // Full 3D distance (not planar): the final fragment sits deep inside the
+      // Trash Can interior, directly beneath the desktop's trash can landmark,
+      // so a planar-only check would false-positive while walking above it.
       const collectRadius = pickup.radius + COLLECTION_RADIUS_PADDING;
-      const distanceSq = this.basis.distanceSqPlanar(pickup.position, playerPosition);
+      const distanceSq = pickup.position.distanceToSquared(playerPosition);
       if (distanceSq <= collectRadius * collectRadius) {
         this.pickups.splice(index, 1);
         this._collect(pickup);

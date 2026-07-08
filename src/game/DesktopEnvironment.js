@@ -156,13 +156,28 @@ export class DesktopEnvironment {
       roughness: 1,
       metalness: 0,
     });
-    const ground = new THREE.Mesh(
-      new THREE.PlaneGeometry(this.worldSize, this.worldSize),
-      material
-    );
+
+    // A real hole under the entry ring, not just a solid plane: without it,
+    // the ground (visible only from above) sits between the elevated follow
+    // camera and the Trash Can interior below, hiding it completely.
+    const halfSize = this.worldSize * 0.5;
+    const shape = new THREE.Shape();
+    shape.moveTo(-halfSize, -halfSize);
+    shape.lineTo(halfSize, -halfSize);
+    shape.lineTo(halfSize, halfSize);
+    shape.lineTo(-halfSize, halfSize);
+    shape.closePath();
+    const hole = new THREE.Path();
+    hole.absarc(this.trashCanPlanar.right, this.trashCanPlanar.forward, TRASH_CAN_ENTRY_RING_OUTER, 0, Math.PI * 2, false);
+    shape.holes.push(hole);
+
+    const ground = new THREE.Mesh(new THREE.ShapeGeometry(shape, 48), material);
     ground.position.copy(this.basis.fromBasisComponents(0, this.floorUp, 0));
     ground.quaternion.copy(this.planeRotation);
     ground.receiveShadow = true;
+    // Also casts a shadow so the Trash Can interior built just beneath it
+    // (Phase 4) reads as genuinely darker without extra fake-dark hacks.
+    ground.castShadow = true;
     this.group.add(ground);
     this.groundMesh = ground;
   }

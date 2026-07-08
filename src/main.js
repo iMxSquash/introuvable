@@ -10,6 +10,9 @@ import { DesktopEnvironment } from './game/DesktopEnvironment.js';
 import { PlayerCursor } from './game/PlayerCursor.js';
 import { FragmentSystem } from './game/FragmentSystem.js';
 import { createHudView } from './game/HudView.js';
+import { TrashCanInterior } from './game/TrashCanInterior.js';
+import { Guard } from './game/Guard.js';
+import { triggerForceQuitEffect } from './game/ForceQuitEffect.js';
 
 const WORLD_SIZE = 70;
 const DEFAULT_FILE_NAME = 'page.html';
@@ -29,6 +32,22 @@ const CAMERA_RIG_OPTIONS = {
   positionLag: 0.15,
   lookLag: 0.12,
 };
+
+const DESKTOP_GUARD_PATROL_RADIUS = 10;
+const DESKTOP_GUARD_WAYPOINT_COUNT = 8;
+const DESKTOP_GUARD_SPEED = 3;
+const DESKTOP_GUARD_CATCH_RADIUS = 2.6;
+// Two guard-free arcs and a mid-gap: [0, 0.10], [0.42, 0.55], [0.90, 1] of a full turn.
+const INTERIOR_GUARD_ARCS = [
+  [0.10, 0.42],
+  [0.55, 0.90],
+];
+const INTERIOR_GUARD_WAYPOINTS_PER_ARC = 4;
+const INTERIOR_GUARD_SPEED = 2.5;
+const INTERIOR_GUARD_CATCH_RADIUS = 2.2;
+const ZONE_ENTER_RADIUS = 5;
+const ZONE_REARM_RADIUS = ZONE_ENTER_RADIUS + 2;
+const ZONE_TRANSITION_COOLDOWN_MS = 1200;
 
 const KEY_TO_MOVE_AXIS = {
   KeyW: 'forward',
@@ -98,11 +117,159 @@ function getRequestedFileName() {
   return safeSegment || DEFAULT_FILE_NAME;
 }
 
+function buildCirclePatrol({ center, radius, count, angleOffset, floorUp, basis }) {
+  const waypoints = [];
+  for (let i = 0; i < count; i += 1) {
+    const angle = (i / count) * Math.PI * 2 + angleOffset;
+    waypoints.push(basis.fromBasisComponents(
+      center.right + radius * Math.cos(angle),
+      floorUp,
+      center.forward + radius * Math.sin(angle)
+    ));
+  }
+  return waypoints;
+}
+
+// Turns a one-way path into a closed loop that walks it forward then back,
+// so a plain closed-loop WaypointProgressTracker yields a back-and-forth patrol.
+function buildPingPongWaypoints(points) {
+  return [...points, ...points.slice(1, -1).reverse()];
+}
+
+function createDesktopGuards({ scene, environment, basis }) {
+  const center = environment.trashCanPlanar;
+  return [0, Math.PI].map((angleOffset) => new Guard({
+    scene,
+    basis,
+    maxSpeed: DESKTOP_GUARD_SPEED,
+    catchRadius: DESKTOP_GUARD_CATCH_RADIUS,
+    waypoints: buildCirclePatrol({
+      center,
+      radius: DESKTOP_GUARD_PATROL_RADIUS,
+      count: DESKTOP_GUARD_WAYPOINT_COUNT,
+      angleOffset,
+      floorUp: environment.floorUp,
+      basis,
+    }),
+  }));
+}
+
+function createInteriorGuards({ scene, trashCanInterior, basis }) {
+  return INTERIOR_GUARD_ARCS.map(([startRatio, endRatio]) => new Guard({
+    scene,
+    basis,
+    maxSpeed: INTERIOR_GUARD_SPEED,
+    catchRadius: INTERIOR_GUARD_CATCH_RADIUS,
+    waypoints: buildPingPongWaypoints(
+      trashCanInterior.getArcWaypoints(startRatio, endRatio, INTERIOR_GUARD_WAYPOINTS_PER_ARC)
+    ),
+  }));
+}
+
 function pointerEventToNdc(event, canvas) {
   const rect = canvas.getBoundingClientRect();
   return {
     x: ((event.clientX - rect.left) / rect.width) * 2 - 1,
     y: -((event.clientY - rect.top) / rect.height) * 2 + 1,
+  };
+}
+
+// Guards the Trash Can: 2 patrol its desktop entry ring, 2 patrol the spiral
+// inside. Contact sends the player back to the main spawn (Force Quit effect,
+// no fragment loss); walking onto the entry ring/spiral top transitions zones.
+function createTrashCanChallenge({ scene, environment, playerCursor, playerSpawn, basis }) {
+  const trashCanInterior = new TrashCanInterior({
+    scene,
+    trashCanPlanar: environment.trashCanPlanar,
+    floorUp: environment.floorUp,
+    basis,
+  });
+  trashCanInterior.create();
+
+  const desktopGuards = createDesktopGuards({ scene, environment, basis });
+  const interiorGuards = createInteriorGuards({ scene, trashCanInterior, basis });
+
+  let zone = 'desktop';
+  let lastTransitionAtMs = -Infinity;
+  let pendingCameraSnap = false;
+  // A transition disarms itself until the player walks away from where it
+  // just dropped them - otherwise standing still on the entry/exit point
+  // would flip zones again as soon as the cooldown below expires.
+  let transitionArmed = true;
+  let lastDestination = null;
+
+  function inCooldown(nowMs) {
+    return nowMs - lastTransitionAtMs < ZONE_TRANSITION_COOLDOWN_MS;
+  }
+
+  function transitionTo(nextZone, destination, nowMs) {
+    playerCursor.teleportTo(destination);
+    zone = nextZone;
+    lastTransitionAtMs = nowMs;
+    pendingCameraSnap = true;
+    transitionArmed = false;
+    lastDestination = destination.clone();
+  }
+
+  function updateArming() {
+    if (transitionArmed || !lastDestination) return;
+    if (playerCursor.position.distanceTo(lastDestination) > ZONE_REARM_RADIUS) transitionArmed = true;
+  }
+
+  function checkZoneTransition(nowMs) {
+    if (!transitionArmed || inCooldown(nowMs)) return;
+
+    if (zone === 'desktop') {
+      const playerPlanar = basis.toPlanar(playerCursor.position);
+      const distance = Math.hypot(
+        playerPlanar.right - trashCanInterior.center.right,
+        playerPlanar.forward - trashCanInterior.center.forward
+      );
+      if (distance <= ZONE_ENTER_RADIUS) transitionTo('interior', trashCanInterior.getEntryPoint(), nowMs);
+    } else {
+      const distance = playerCursor.position.distanceTo(trashCanInterior.getEntryPoint());
+      if (distance <= ZONE_ENTER_RADIUS) transitionTo('desktop', environment.trashCanPosition, nowMs);
+    }
+  }
+
+  function checkGuardContact(nowMs) {
+    if (inCooldown(nowMs)) return;
+
+    const activeGuards = zone === 'desktop' ? desktopGuards : interiorGuards;
+    const catchRadius = zone === 'desktop' ? DESKTOP_GUARD_CATCH_RADIUS : INTERIOR_GUARD_CATCH_RADIUS;
+    const playerPosition = playerCursor.position;
+
+    for (const guard of activeGuards) {
+      const distanceSq = basis.distanceSqPlanar(playerPosition, guard.position);
+      if (distanceSq <= catchRadius * catchRadius) {
+        triggerForceQuitEffect();
+        transitionTo('desktop', playerSpawn, nowMs);
+        break;
+      }
+    }
+  }
+
+  return {
+    trashCanInterior,
+
+    createPhysicsColliders(world, rapier) {
+      trashCanInterior.createPhysicsColliders(world, rapier);
+    },
+
+    consumeCameraSnap() {
+      const shouldSnap = pendingCameraSnap;
+      pendingCameraSnap = false;
+      return shouldSnap;
+    },
+
+    update(deltaSeconds, nowMs) {
+      for (const guard of desktopGuards) guard.update(deltaSeconds, desktopGuards);
+      for (const guard of interiorGuards) guard.update(deltaSeconds, interiorGuards);
+
+      updateArming();
+      checkZoneTransition(nowMs);
+      checkGuardContact(nowMs);
+    },
   };
 }
 
@@ -139,7 +306,7 @@ function setupClickToMove({ canvas, camera, playerCursor, environment, scene, ba
   };
 }
 
-function start({ renderer, scene, camera, playerCursor, environment, fragmentSystem }) {
+function start({ renderer, scene, camera, playerCursor, environment, fragmentSystem, trashCanChallenge }) {
   const clock = new Clock();
   let previousSeconds = clock.nowSeconds();
   let firstFrame = true;
@@ -167,17 +334,22 @@ function start({ renderer, scene, camera, playerCursor, environment, fragmentSys
     const deltaSeconds = clamp(nowSeconds - previousSeconds, 0, MAX_DELTA_SECONDS);
     previousSeconds = nowSeconds;
 
-    const snapshot = playerCursor.update({ deltaSeconds, keyboard });
+    playerCursor.update({ deltaSeconds, keyboard });
+    trashCanChallenge.update(deltaSeconds, performance.now());
+    // Read the position fresh: trashCanChallenge.update() may have just
+    // teleported the player (zone transition or Force Quit).
+    const playerPosition = playerCursor.position;
+
     cameraRig.step({
-      targetPosition: snapshot.position,
+      targetPosition: playerPosition,
       deltaSeconds,
       camera,
-      snapToTarget: firstFrame,
+      snapToTarget: firstFrame || trashCanChallenge.consumeCameraSnap(),
     });
     firstFrame = false;
 
     clickToMove.update(deltaSeconds);
-    fragmentSystem.update(deltaSeconds, snapshot.position);
+    fragmentSystem.update(deltaSeconds, playerPosition);
 
     // No explicit physicsWorld.step() here: PlayerCursor.update() already steps
     // the world once per frame via KinematicBatchResolver.resolveQueuedMoves().
@@ -204,11 +376,15 @@ const playerCursor = new PlayerCursor({
   spawnPosition: playerSpawn,
 });
 
+const trashCanChallenge = createTrashCanChallenge({ scene, environment, playerCursor, playerSpawn, basis });
+trashCanChallenge.createPhysicsColliders(physicsWorld, RAPIER);
+
 const fragmentSystem = new FragmentSystem({
   scene,
   environment,
   basis,
   playerSpawnPosition: playerSpawn,
+  finalFragmentPosition: trashCanChallenge.trashCanInterior.getFragmentPosition(),
   fileName: getRequestedFileName(),
 });
 createHudView({
@@ -224,4 +400,5 @@ start({
   playerCursor,
   environment,
   fragmentSystem,
+  trashCanChallenge,
 });

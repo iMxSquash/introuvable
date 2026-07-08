@@ -70,6 +70,16 @@ export class PlayerCursor {
     this.moveTarget = point.clone();
   }
 
+  // Instantly relocates the cursor (spawn respawn, Force Quit, zone
+  // transitions) bypassing the normal collision-resolved movement pipeline.
+  teleportTo(position) {
+    this.resolver.syncActor(this.actor, position);
+    this.targetController.setState({ position, velocity: { x: 0, y: 0, z: 0 }, grounded: true });
+    this.cardinalController.setState({ position, velocity: { x: 0, y: 0, z: 0 }, grounded: true });
+    this.moveTarget = null;
+    this.modelController.reset(position);
+  }
+
   update({ deltaSeconds, keyboard }) {
     const keyboardActive = Boolean(
       keyboard.forward || keyboard.backward || keyboard.left || keyboard.right

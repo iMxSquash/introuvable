@@ -48,3 +48,40 @@ path never shows the filename out of order even if the final fragment is grabbed
 scripted full 7/7 collection run. The `?path=` query filename is parsed and sanitized minimally
 (character allowlist, length cap) in `main.js`'s `getRequestedFileName()`; Phase 7 formalizes the full
 sanitization contract described in the TODO.
+
+| `behavior/AgentPathNavigator.js` | Converts position + target waypoint into a planar direction/speed intent | Reused as-is | None | `src/game/Guard.js` computes each guard's move intent toward its current waypoint every frame |
+| `behavior/WaypointProgressTracker.js` | Advances a waypoint index once the reach distance is met, closed-loop or one-way | Reused as-is | None | `src/game/Guard.js`; desktop guards use a true closed circle, interior guards use a closed "there and back" cycle built from `buildPingPongWaypoints()` in `main.js` so the same closed-loop tracker produces a ping-pong arc patrol without any module change |
+| `behavior/NearbyAvoidanceSteering.js` | Steers an actor away from nearby agents while keeping its intended direction | Reused as-is | None | `src/game/Guard.js`; each guard only receives its own group (desktop or interior) as neighbors, never both — the module's distance check is planar-only, so mixing groups would falsely treat a guard directly above/below another (different depth, same desktop-vs-interior column) as a nearby neighbor |
+| `world/object/PickupObject.js`, `world/object/factory/PickupVisualFactory.js` | (see Phase 3) | — | — | Final fragment now spawns at `TrashCanInterior.getFragmentPosition()` (bottom chamber) instead of the Phase 3 placeholder desktop position |
+
+New for Phase 4 (no direct GameBlocks module, following the reuse-first patterns of already-copied
+modules): `src/game/TrashCanInterior.js` builds the descending spiral corridor and bottom chamber as
+hand-built world-space trimesh geometry/colliders, the same "bake world positions into a custom
+BufferGeometry, one fixed rigid body per trimesh" technique already used by the copied
+`ArenaEnvironment.js`/`WorldBoundsColliderFactory.js`. `src/game/GuardMesh.js` builds the guard's
+squircle icon (`ExtrudeGeometry` + rounded-corner `Shape`), the same technique as the Phase 2 cursor
+mesh. `src/game/ForceQuitEffect.js` and `src/game/PickupSound.js` share one lazily-created
+`AudioContext` via `src/game/AudioContextSingleton.js` (avoids instantiating two audio contexts).
+
+Known API break found in Phase 4: contact/collision checks that mix "desktop" and "interior" actors
+must never use planar-only distance (`basis.distanceSqPlanar`, or `NearbyAvoidanceSteering`'s internal
+check) across the two groups, since both sit at the same (right, forward) column at wildly different
+heights (interior is built directly beneath the desktop's Trash Can). `FragmentSystem`'s collection
+check was changed from planar to full 3D distance for this reason (the final fragment moved deep
+underground in Phase 4); guard contact detection and guard-to-guard avoidance instead stay planar but
+are scoped to only ever compare actors within the same zone (desktop guards vs. desktop guards,
+interior guards vs. interior guards, checked against the player's current zone).
+
+Design note: the desktop ground plane is single-sided and fully opaque, and the follow camera always
+sits `height` units above the player regardless of the player's own altitude - so once the interior
+existed beneath the Trash Can, the plane sat directly between the elevated camera and the underground
+player, hiding the entire interior. Fixed by cutting an actual hole in the ground's `ShapeGeometry`
+under the entry ring (`DesktopEnvironment.createGround()`); the physics collider is left solid there on
+purpose, since the zone transition is a scripted teleport (see below), not a physical fall-through.
+
+Design note: entering/exiting the Trash Can is a teleport triggered by proximity to the entry ring
+(desktop) or the top of the spiral (interior), not a physical walk through the visual hole. A first
+version re-triggered the opposite transition as soon as a time-based cooldown expired if the player
+stood still exactly on the arrival point (both trigger points are where `transitionTo` actually drops
+the player). Fixed with a re-arm gate: after any transition, the same trigger cannot fire again until
+the player has moved more than `ZONE_REARM_RADIUS` away from where they were dropped.

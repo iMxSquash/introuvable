@@ -1,23 +1,13 @@
 // Synthesized macOS-like "pop" via Web Audio, no external sound asset needed.
+import { getSharedAudioContext } from './AudioContextSingleton.js';
+
 const POP_FREQUENCY_START = 720;
 const POP_FREQUENCY_END = 1180;
 const POP_DURATION_SECONDS = 0.16;
 const POP_PEAK_GAIN = 0.35;
 
-let sharedAudioContext = null;
-
-function getAudioContext() {
-  if (typeof window === 'undefined') return null;
-  const AudioContextClass = window.AudioContext ?? window.webkitAudioContext;
-  if (!AudioContextClass) return null;
-
-  if (!sharedAudioContext) sharedAudioContext = new AudioContextClass();
-  if (sharedAudioContext.state === 'suspended') sharedAudioContext.resume();
-  return sharedAudioContext;
-}
-
 export function playPickupSound() {
-  const context = getAudioContext();
+  const context = getSharedAudioContext();
   if (!context) return;
 
   const now = context.currentTime;
