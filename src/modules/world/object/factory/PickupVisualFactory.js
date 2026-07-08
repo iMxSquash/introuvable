@@ -88,7 +88,9 @@ function foldFileFragmentGeometry(geometry) {
   geometry.computeVertexNormals();
 }
 
-export function buildFileFragmentVisual(color = 0xffffff, emissiveColor = 0x9fd2ff) {
+// 0xf5f3ef: off-white paper tone (see src/game/Palette.js's OFF_WHITE) rather
+// than pure white, for a softer, less clinical look.
+export function buildFileFragmentVisual(color = 0xf5f3ef, emissiveColor = 0x9fd2ff) {
   const shape = new THREE.Shape();
   FILE_FRAGMENT_OUTLINE.forEach(([x, y], index) => {
     if (index === 0) shape.moveTo(x, y);
@@ -132,7 +134,7 @@ export function createPickupVisual({
   if (type === 'ammo') return buildAmmoPickupVisual(color, accentColor);
   if (type === 'health') return buildHealthPickupVisual(color, crossColor);
   if (type === 'fragment' || type === 'fragment-final') {
-    return buildFileFragmentVisual(color ?? 0xffffff, emissiveColor ?? 0x9fd2ff);
+    return buildFileFragmentVisual(color ?? 0xf5f3ef, emissiveColor ?? 0x9fd2ff);
   }
   return buildArmorPickupVisual(color, ringColor);
 }

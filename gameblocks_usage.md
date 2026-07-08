@@ -112,3 +112,33 @@ Design note: gameplay (movement, guards, click-to-move, fragment collection) onl
 callback rather than unconditionally at module load. This both gates the "cliquez pour rechercher le
 fichier" diegetic intro and, since the same click synchronously calls `getSharedAudioContext()`, unlocks
 autoplay for every synthesized sound effect used later (pickup pop, Force Quit alert, restore chime).
+
+Phase 6 (art direction & polish) needed no new GameBlocks module - it revisited the custom meshes/scene
+code from Phases 1-5:
+- `src/game/Palette.js` centralizes the folder blue and off-white tones so they're defined once instead
+  of duplicated per file. Folder blue is set to the TODO's own suggested `#3B82F6`; no real portfolio
+  wallpaper/folder-icon screenshot exists yet to verify against (still true as of this phase), so this
+  is the most faithful value available rather than an invented one. `PickupVisualFactory.js`'s fragment
+  paper keeps its own local off-white default (`0xf5f3ef`, matching `Palette.OFF_WHITE`) since
+  `src/modules/` is meant to stay independent of `src/game/`.
+- `src/game/ContactShadow.js`: a soft radial-gradient decal (one shared `CanvasTexture` + one shared
+  unit `PlaneGeometry`, only `scale`/position differ per instance) added under the cursor, every folder,
+  and every guard, per the TODO's explicit list (fragments and the Trash Can itself are not listed).
+- Guards now have an idle "breathing" animation (a small sine-wave scale pulse, phase-offset per guard
+  so all 4 don't pulse in lockstep) applied only to the guard's visual sub-group, not its contact shadow
+  sibling - folders stay completely static, matching the TODO's "ce sont des bâtiments" note. Fragments
+  already floated/spun via `PickupObject.animate()` since Phase 3; nothing to add there.
+- Perf pass: `DesktopEnvironment`'s per-folder `MeshStandardMaterial` and `GuardMesh`'s per-guard
+  geometry/material were being recreated on every instance despite being visually identical; both are
+  now module-level shared constants. Removed one redundant `Vector3.clone()` per guard per frame in
+  `Guard.update()` (the source vector was already a fresh, unshared object from that frame's navigator
+  call). Per-frame allocations inside the copied GameBlocks modules themselves (e.g.
+  `WorldTargetCharacterMotionController`) were left as-is per the reuse-first policy - negligible cost,
+  and rewriting a copied module for micro-perf isn't an "adaptation" the modules actually need.
+- Added a `visibilitychange` handler in `main.js` that cancels the `requestAnimationFrame` loop entirely
+  while the tab is hidden and resets the clock on resume (avoiding one large clamped-but-still-wrong
+  delta frame). Verified via an injected `requestAnimationFrame` call counter: 0 frames over 800ms while
+  hidden, normal frame rate immediately on resume. This directly addresses the TODO's "c'est une page
+  404, elle peut rester ouverte en fond" note - no GPU/battery burned while not visible.
+- No numeric FPS measurement was taken (no profiler available in this environment) - the target is
+  addressed by the shared-resource and no-per-frame-allocation work above, not verified with a number.

@@ -373,10 +373,22 @@ function start({
     // No explicit physicsWorld.step() here: PlayerCursor.update() already steps
     // the world once per frame via KinematicBatchResolver.resolveQueuedMoves().
     renderer.render(scene, camera);
-    requestAnimationFrame(frame);
+    rafHandle = requestAnimationFrame(frame);
   }
 
-  requestAnimationFrame(frame);
+  // This is a 404 page: it may be left open in a background tab indefinitely.
+  // Stop rendering entirely while hidden instead of burning GPU/battery, and
+  // avoid one huge clamped delta by resetting the clock on resume.
+  let rafHandle = requestAnimationFrame(frame);
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) {
+      if (rafHandle != null) cancelAnimationFrame(rafHandle);
+      rafHandle = null;
+    } else if (rafHandle == null) {
+      previousSeconds = clock.nowSeconds();
+      rafHandle = requestAnimationFrame(frame);
+    }
+  });
 }
 
 const physicsWorld = await createPhysicsWorld();

@@ -1,10 +1,11 @@
 import * as THREE from 'three';
+import { OFF_WHITE } from './Palette.js';
 
 const ICON_WIDTH = 1.3;
 const ICON_HEIGHT = 1.7;
 const FOLD_SIZE = 0.4;
 const ICON_THICKNESS = 0.12;
-const ICON_COLOR = 0xffffff;
+const ICON_COLOR = OFF_WHITE;
 const FOLD_COLOR = 0xd8dee6;
 
 function buildFileOutlineShape() {

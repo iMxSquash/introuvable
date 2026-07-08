@@ -6,6 +6,8 @@ import { DEFAULT_WORLD_BASIS } from '../modules/math/WorldBasis.js';
 import { createGuardModel } from './GuardMesh.js';
 
 const STEERING_EPS = 1e-6;
+const BREATH_SPEED = 2.2;
+const BREATH_AMPLITUDE = 0.035;
 
 export class Guard {
   constructor({
@@ -18,8 +20,10 @@ export class Guard {
     this.basis = basis;
     this.catchRadius = catchRadius;
     this.yaw = 0;
+    // Idle phase offset so guards don't all breathe in lockstep.
+    this.breathPhase = Math.random() * Math.PI * 2;
 
-    this.model = createGuardModel();
+    this.model = createGuardModel(basis);
     scene.add(this.model);
     this.modelController = new GeneralObjectModelController({ model: this.model, basis, keepBasisUp: true });
 
@@ -42,7 +46,7 @@ export class Guard {
       self: this,
     });
 
-    const blended = navIntent.direction.clone().add(avoidanceResult.steering);
+    const blended = navIntent.direction.add(avoidanceResult.steering);
     if (blended.lengthSq() > STEERING_EPS) {
       blended.normalize();
       this.position.add(blended.clone().multiplyScalar(navIntent.desiredSpeed * deltaSeconds));
@@ -50,5 +54,8 @@ export class Guard {
     }
 
     this.modelController.step(this.position, this.basis.yawPitchRollFrame(this.yaw));
+
+    this.breathPhase += deltaSeconds * BREATH_SPEED;
+    this.model.userData.visual.scale.setScalar(1 + Math.sin(this.breathPhase) * BREATH_AMPLITUDE);
   }
 }

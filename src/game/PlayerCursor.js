@@ -19,7 +19,7 @@ export class PlayerCursor {
   constructor({ scene, physicsWorld, rapier, basis = DEFAULT_WORLD_BASIS, spawnPosition }) {
     this.basis = basis;
 
-    this.model = createCursorModel();
+    this.model = createCursorModel(basis);
     scene.add(this.model);
     this.modelController = new GeneralObjectModelController({
       model: this.model,

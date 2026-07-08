@@ -1,4 +1,7 @@
 import * as THREE from 'three';
+import { DEFAULT_WORLD_BASIS } from '../modules/math/WorldBasis.js';
+import { OFF_WHITE } from './Palette.js';
+import { createContactShadow } from './ContactShadow.js';
 
 // macOS-style arrow pointer silhouette, tip at the local origin, tail trailing
 // toward -Y. Extruded along Z then rotated so the tip ends up on local -Z,
@@ -18,8 +21,9 @@ const CURSOR_THICKNESS = 0.4;
 const CURSOR_OUTLINE_SCALE = 1.16;
 const CURSOR_OUTLINE_MARGIN = 0.05;
 const CURSOR_TILT_RADIANS = -0.32;
+const CURSOR_SHADOW_RADIUS = 1.1;
 const FILL_COLOR = 0x1d1d1f;
-const OUTLINE_COLOR = 0xffffff;
+const OUTLINE_COLOR = OFF_WHITE;
 
 function buildArrowShape(scale) {
   const shape = new THREE.Shape();
@@ -43,7 +47,7 @@ function buildArrowGeometry(scale, depth, verticalOffset = 0) {
   return geometry;
 }
 
-export function createCursorModel() {
+export function createCursorModel(basis = DEFAULT_WORLD_BASIS) {
   const fillGeometry = buildArrowGeometry(CURSOR_SCALE, CURSOR_THICKNESS);
   const fillMaterial = new THREE.MeshStandardMaterial({
     color: FILL_COLOR,
@@ -73,6 +77,6 @@ export function createCursorModel() {
 
   const model = new THREE.Group();
   model.name = 'CursorModel';
-  model.add(visual);
+  model.add(visual, createContactShadow({ radius: CURSOR_SHADOW_RADIUS, basis }));
   return model;
 }

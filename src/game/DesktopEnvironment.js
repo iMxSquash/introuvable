@@ -4,15 +4,18 @@ import { DEFAULT_PRNG } from '../modules/math/RandomUtils.js';
 import { disposeObject3D } from '../modules/world/Object3DUtils.js';
 import { createWorldBoundsColliders } from '../modules/world/environment/WorldBoundsColliderFactory.js';
 import { SpawnAreaSampler, SPAWN_REGION_TYPES } from '../modules/world/environment/SpawnAreaSampler.js';
+import { FOLDER_BLUE, TRASH_GRAY } from './Palette.js';
+import { createContactShadow } from './ContactShadow.js';
 
-// Provisional macOS-ish tones. The real wallpaper texture is added in Phase 6
-// once the actual portfolio wallpaper asset exists (none is committed yet in
-// the portfolio repo) - `wallpaperTexture` lets it be swapped in without
+// Provisional macOS-ish tones. The real wallpaper texture is added once the
+// actual portfolio wallpaper asset exists (none is committed yet in the
+// portfolio repo) - `wallpaperTexture` lets it be swapped in without
 // touching this class.
 const PLACEHOLDER_GROUND_COLOR = 0x8fadd1;
 const PLACEHOLDER_SKY_COLOR = 0xc7d7ea;
-const FOLDER_COLOR = 0x4f91f1;
-const TRASH_CAN_COLOR = 0x9aa3ab;
+const FOLDER_COLOR = FOLDER_BLUE;
+const TRASH_CAN_COLOR = TRASH_GRAY;
+const FOLDER_SHADOW_RADIUS = 3.2;
 
 const FOLDER_BODY_SIZE = Object.freeze({ right: 4.4, up: 3.0, forward: 3.2 });
 const FOLDER_TAB_SIZE = Object.freeze({ right: 1.85, up: 0.66, forward: 1.6 });
@@ -53,6 +56,14 @@ const folderTabGeometry = new THREE.BoxGeometry(
   FOLDER_TAB_SIZE.up,
   FOLDER_TAB_SIZE.forward
 );
+// Folders are visually identical low-poly buildings: one shared material for
+// every instance instead of one per folder.
+const folderMaterial = new THREE.MeshStandardMaterial({
+  color: FOLDER_COLOR,
+  roughness: 0.75,
+  metalness: 0.05,
+  flatShading: true,
+});
 
 function buildFolderGridCells(worldSize, prng, trashCanPlanar) {
   const halfSize = worldSize * 0.5 - FOLDER_WORLD_MARGIN;
@@ -188,22 +199,15 @@ export class DesktopEnvironment {
   }
 
   createFolderMesh() {
-    const material = new THREE.MeshStandardMaterial({
-      color: FOLDER_COLOR,
-      roughness: 0.75,
-      metalness: 0.05,
-      flatShading: true,
-    });
-
     const group = new THREE.Group();
 
-    const body = new THREE.Mesh(folderBodyGeometry, material);
+    const body = new THREE.Mesh(folderBodyGeometry, folderMaterial);
     body.position.copy(this.basis.fromBasisComponents(0, FOLDER_BODY_SIZE.up * 0.5, 0));
     body.castShadow = true;
     body.receiveShadow = true;
     group.add(body);
 
-    const tab = new THREE.Mesh(folderTabGeometry, material);
+    const tab = new THREE.Mesh(folderTabGeometry, folderMaterial);
     tab.position.copy(this.basis.fromBasisComponents(
       -(FOLDER_BODY_SIZE.right * 0.5 - FOLDER_TAB_SIZE.right * 0.5),
       FOLDER_BODY_SIZE.up + FOLDER_TAB_SIZE.up * 0.5,
@@ -211,6 +215,8 @@ export class DesktopEnvironment {
     ));
     tab.castShadow = true;
     group.add(tab);
+
+    group.add(createContactShadow({ radius: FOLDER_SHADOW_RADIUS, basis: this.basis }));
 
     return group;
   }
