@@ -160,6 +160,12 @@ export class DesktopEnvironment {
     ground.quaternion.copy(this.planeRotation);
     ground.receiveShadow = true;
     this.group.add(ground);
+    this.groundMesh = ground;
+  }
+
+  // Raycast targets for click-to-move aiming (AimResolver).
+  getRaycastTargets() {
+    return [this.groundMesh];
   }
 
   createFolderMesh() {
