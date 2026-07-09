@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-07-09
+
 ### Added
 
 - Giant macOS-style desktop world with folders and a Trash Can landmark
@@ -19,3 +21,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Repository documentation: `README.md`, `LICENSE` (MIT), `CONTRIBUTING.md`, `SECURITY.md`, this changelog
 - GitHub project files: issue templates, pull request template, `CODEOWNERS`, `dependabot.yml`, `release.yml`
 - CI workflow (`.github/workflows/ci.yml`) running lint, tests and build on every push and pull request
+
+[Unreleased]: https://github.com/iMxSquash/introuvable/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/iMxSquash/introuvable/releases/tag/v0.1.0
