@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Keyboard movement (ZQSD/WASD/arrows) walked diagonally on screen because it moved along raw world axes while the camera sits at a fixed 45° azimuth; input is now rotated by the camera's azimuth so "forward" moves the cursor away from the camera on screen
+
 ## [0.1.0] - 2026-07-09
 
 ### Added

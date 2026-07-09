@@ -444,6 +444,10 @@ const playerCursor = new PlayerCursor({
   rapier: RAPIER,
   basis,
   spawnPosition: playerSpawn,
+  // Keyboard/joystick input is expressed as basis forward/right; rotate it by
+  // the isometric camera's azimuth so "forward" moves the cursor away from
+  // the camera on screen instead of along a world axis that reads diagonal.
+  cameraAzimuth: CAMERA_RIG_OPTIONS.azimuth,
 });
 
 const trashCanChallenge = createTrashCanChallenge({ scene, environment, playerCursor, playerSpawn, basis });
