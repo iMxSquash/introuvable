@@ -14,6 +14,12 @@ const WALK_SPEED = 9;
 const CURSOR_STOP_RADIUS = 0.4;
 const TURN_LAG = 0.08;
 const GROUNDED_PROBE_DISTANCE = 0.3;
+// Lower than BaseCharacterMotionController's default (8.5, ~3.7m apex): the
+// jump course only gains ~1m per step (3m total up to the final folder
+// roof), so the default sent the cursor flying well above the platforms.
+// This still clears each step with margin - see DesktopEnvironment.js's
+// COURSE_* constants for the course's own sizing.
+const JUMP_VELOCITY = 6;
 
 export class PlayerCursor {
   constructor({ scene, physicsWorld, rapier, basis = DEFAULT_WORLD_BASIS, spawnPosition, cameraAzimuth = 0 }) {
@@ -50,7 +56,13 @@ export class PlayerCursor {
       groundedProbeDistance: GROUNDED_PROBE_DISTANCE,
     });
 
-    const sharedConfig = { walkSpeed: WALK_SPEED, sprintSpeed: WALK_SPEED, turnLag: TURN_LAG, basis };
+    const sharedConfig = {
+      walkSpeed: WALK_SPEED,
+      sprintSpeed: WALK_SPEED,
+      turnLag: TURN_LAG,
+      jumpVelocity: JUMP_VELOCITY,
+      basis,
+    };
     this.targetController = new WorldTargetCharacterMotionController({
       stopRadius: CURSOR_STOP_RADIUS,
       ...sharedConfig,
