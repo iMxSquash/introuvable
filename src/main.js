@@ -17,6 +17,7 @@ import { GameProgress } from './game/GameProgress.js';
 import { RestorationCinematic } from './game/RestorationCinematic.js';
 import { createFinderWindow } from './game/FinderWindow.js';
 import { createStartScreen } from './game/StartScreen.js';
+import { createTouchJoystick } from './game/TouchJoystick.js';
 
 const WORLD_SIZE = 70;
 const DEFAULT_FILE_NAME = 'page.html';
@@ -116,6 +117,18 @@ function createKeyboardState() {
   });
 
   return keyboard;
+}
+
+// Combines the keyboard state with the mobile/tablet on-screen joystick's
+// axes (both share the same forward/backward/left/right shape) so either
+// input source alone is enough to move the cursor.
+function combineMoveInputs(keyboard, joystickAxes) {
+  return {
+    forward: Math.max(keyboard.forward, joystickAxes.forward),
+    backward: Math.max(keyboard.backward, joystickAxes.backward),
+    left: Math.max(keyboard.left, joystickAxes.left),
+    right: Math.max(keyboard.right, joystickAxes.right),
+  };
 }
 
 // Integration contract with the portfolio's `?path=` query param: max length,
@@ -351,6 +364,7 @@ function start({
   let firstFrame = true;
 
   const keyboard = createKeyboardState();
+  const touchJoystick = createTouchJoystick();
   const cameraRig = new PositionFollowCameraRig({ ...getCameraRigOptions(), basis });
   const clickToMove = setupClickToMove({
     canvas: renderer.domElement,
@@ -387,7 +401,8 @@ function start({
     // Once the last fragment is restored, freeze normal gameplay (movement,
     // guards, click-to-move) and let only the restoration cinematic play.
     if (!isGameEnded()) {
-      playerCursor.update({ deltaSeconds, keyboard });
+      const moveInput = combineMoveInputs(keyboard, touchJoystick.axes);
+      playerCursor.update({ deltaSeconds, keyboard: moveInput });
       trashCanChallenge.update(deltaSeconds, performance.now());
       // Read the position fresh: trashCanChallenge.update() may have just
       // teleported the player (zone transition or Force Quit).
@@ -444,6 +459,10 @@ const playerCursor = new PlayerCursor({
   rapier: RAPIER,
   basis,
   spawnPosition: playerSpawn,
+  // Keyboard/joystick input is expressed as basis forward/right; rotate it by
+  // the isometric camera's azimuth so "forward" moves the cursor away from
+  // the camera on screen instead of along a world axis that reads diagonal.
+  cameraAzimuth: CAMERA_RIG_OPTIONS.azimuth,
 });
 
 const trashCanChallenge = createTrashCanChallenge({ scene, environment, playerCursor, playerSpawn, basis });

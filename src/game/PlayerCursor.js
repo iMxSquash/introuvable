@@ -16,7 +16,7 @@ const TURN_LAG = 0.08;
 const GROUNDED_PROBE_DISTANCE = 0.3;
 
 export class PlayerCursor {
-  constructor({ scene, physicsWorld, rapier, basis = DEFAULT_WORLD_BASIS, spawnPosition }) {
+  constructor({ scene, physicsWorld, rapier, basis = DEFAULT_WORLD_BASIS, spawnPosition, cameraAzimuth = 0 }) {
     this.basis = basis;
 
     this.model = createCursorModel(basis);
@@ -55,7 +55,7 @@ export class PlayerCursor {
       stopRadius: CURSOR_STOP_RADIUS,
       ...sharedConfig,
     });
-    this.cardinalController = new WorldCardinalCharacterMotionController(sharedConfig);
+    this.cardinalController = new WorldCardinalCharacterMotionController({ ...sharedConfig, cameraAzimuth });
     this.targetController.setState({ position: spawnPosition, grounded: true });
     this.cardinalController.setState({ position: spawnPosition, grounded: true });
 
