@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- On-screen joystick for movement on touch devices (phones/tablets), merged with the keyboard input
+- Landscape-lock overlay blocking gameplay on touch devices held in portrait, with a rotate-device hint
+
 ### Fixed
 
 - Keyboard movement (ZQSD/WASD/arrows) walked diagonally on screen because it moved along raw world axes while the camera sits at a fixed 45° azimuth; input is now rotated by the camera's azimuth so "forward" moves the cursor away from the camera on screen
