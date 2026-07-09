@@ -11,6 +11,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - On-screen joystick for movement on touch devices (phones/tablets), merged with the keyboard input
 - Landscape-lock overlay blocking gameplay on touch devices held in portrait, with a rotate-device hint
+- Jump: Space bar on keyboard, on-screen jump button on touch devices
+
+### Changed
+
+- The final fragment is now reached via an easy jump-platforming course built directly into the desktop (stepping platforms leading to a folder, the fragment sitting on its roof), instead of a guarded Trash Can interior
+
+### Removed
+
+- The Trash Can landmark, its guarded interior, the guard patrol AI, and the Force Quit catch effect
 
 ### Fixed
 

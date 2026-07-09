@@ -14,7 +14,7 @@ import { createContactShadow } from './ContactShadow.js';
 const PLACEHOLDER_GROUND_COLOR = 0x8fadd1;
 const PLACEHOLDER_SKY_COLOR = 0xc7d7ea;
 const FOLDER_COLOR = FOLDER_BLUE;
-const TRASH_CAN_COLOR = TRASH_GRAY;
+const COURSE_PLATFORM_COLOR = TRASH_GRAY;
 const FOLDER_SHADOW_RADIUS = 3.2;
 
 const FOLDER_BODY_SIZE = Object.freeze({ right: 4.4, up: 3.0, forward: 3.2 });
@@ -26,12 +26,35 @@ const FOLDER_WORLD_MARGIN = 9;
 const SPAWN_KEEPOUT_RADIUS = 12;
 const FOLDER_COLLIDER_FRICTION = 0.9;
 
-const TRASH_CAN_RADIUS = 7;
-const TRASH_CAN_HEIGHT = 14;
-const TRASH_CAN_MARGIN_FROM_EDGE = 9;
-const TRASH_CAN_KEEPOUT_RADIUS = TRASH_CAN_RADIUS + 6;
-const TRASH_CAN_ENTRY_RING_INNER = TRASH_CAN_RADIUS * 0.7;
-const TRASH_CAN_ENTRY_RING_OUTER = TRASH_CAN_RADIUS * 0.95;
+// The easy jump-platforming course: a couple of stepping platforms at
+// increasing height, leading to one extra folder standing normally on the
+// ground - its roof (reachable with one more easy hop) holds the final
+// fragment. Built along `COURSE_DIRECTION`, a fixed diagonal in (right,
+// forward) chosen to match the screen-right direction of this game's fixed
+// isometric camera (`CAMERA_RIG_OPTIONS.azimuth = Math.PI / 4` in
+// `main.js`): with that azimuth, screen-right is world direction
+// `(cos(azimuth), -sin(azimuth))`, i.e. exactly `(√2/2, -√2/2)`. This class
+// stays camera-agnostic otherwise, so the direction is a plain constant
+// rather than an imported azimuth.
+const COURSE_DIRECTION = Object.freeze({ right: Math.SQRT1_2, forward: -Math.SQRT1_2 });
+const COURSE_ENTRY_DISTANCE = 18;
+const COURSE_PLATFORM_1_HEIGHT = 1.0;
+const COURSE_PLATFORM_2_HEIGHT = 2.0;
+// Wider than long: a comfortable landing pad. Rotated to face along
+// COURSE_DIRECTION (see `courseYaw` below), so its "forward" span is the
+// half-length actually eaten into the jump distance, not a diagonal corner.
+const COURSE_PLATFORM_SIZE = Object.freeze({ right: 3.5, up: 0.5, forward: 2 });
+const COURSE_PLATFORM_ALONG_HALF = COURSE_PLATFORM_SIZE.forward / 2;
+const FOLDER_ALONG_HALF = FOLDER_BODY_SIZE.forward / 2;
+// Clear horizontal air gap aimed for at each jump - comfortably inside the
+// jump range given `jumpVelocity`/`gravity`/`walkSpeed` (BaseCharacterMotionController).
+const COURSE_AIR_GAP = 3;
+// Small enough to sit inside each gap's open-air span without reaching
+// either platform's own footprint (verified against COURSE_AIR_GAP above).
+const COURSE_FALL_CAPTURE_RADIUS = 1;
+// Generous exclusion so no folder/spawn/fragment appears on or too close to
+// the course, regardless of platform rotation.
+const COURSE_KEEPOUT_RADIUS = 5;
 
 const FRAGMENT_SAMPLE_ATTEMPTS = 30;
 const FRAGMENT_MIN_DISTANCE_FROM_SPAWN = 14;
@@ -81,7 +104,29 @@ const folderMaterial = new THREE.MeshStandardMaterial({
   flatShading: true,
 });
 
-function buildFolderGridCells(worldSize, prng, trashCanPlanar) {
+const coursePlatformGeometry = new THREE.BoxGeometry(
+  COURSE_PLATFORM_SIZE.right,
+  COURSE_PLATFORM_SIZE.up,
+  COURSE_PLATFORM_SIZE.forward
+);
+// A distinct neutral tone from the folders' blue: signals "this is just a
+// stepping stone", not a collectible-bearing folder.
+const coursePlatformMaterial = new THREE.MeshStandardMaterial({
+  color: COURSE_PLATFORM_COLOR,
+  roughness: 0.8,
+  metalness: 0.05,
+  flatShading: true,
+});
+
+// Planar (right, forward) position at the given distance along the course.
+function pointAlongCourse(distance) {
+  return {
+    right: COURSE_DIRECTION.right * distance,
+    forward: COURSE_DIRECTION.forward * distance,
+  };
+}
+
+function buildFolderGridCells(worldSize, prng, courseKeepoutPoints) {
   const halfSize = worldSize * 0.5 - FOLDER_WORLD_MARGIN;
   const cells = [];
 
@@ -92,7 +137,9 @@ function buildFolderGridCells(worldSize, prng, trashCanPlanar) {
 
       if (Math.abs(right) > halfSize || Math.abs(forward) > halfSize) continue;
       if (Math.hypot(right, forward) < SPAWN_KEEPOUT_RADIUS) continue;
-      if (Math.hypot(right - trashCanPlanar.right, forward - trashCanPlanar.forward) < TRASH_CAN_KEEPOUT_RADIUS) continue;
+      if (courseKeepoutPoints.some((point) => (
+        Math.hypot(right - point.right, forward - point.forward) < COURSE_KEEPOUT_RADIUS
+      ))) continue;
 
       cells.push({ right, forward, yaw: prng.uniform(0, Math.PI * 2) });
     }
@@ -124,15 +171,51 @@ export class DesktopEnvironment {
     this.group = new THREE.Group();
     this.group.name = 'DesktopEnvironment';
 
-    this.trashCanPosition = this.basis.fromBasisComponents(
-      0,
-      this.floorUp,
-      this.worldSize * 0.5 - TRASH_CAN_MARGIN_FROM_EDGE
+    // Yaw that turns an object's local "forward" span to point along
+    // COURSE_DIRECTION, so a platform/folder's own along-travel half-extent
+    // is a plain half-length instead of a diagonal corner distance.
+    this.courseYaw = this.basis.forwardToYaw(
+      this.basis.fromBasisComponents(COURSE_DIRECTION.right, 0, COURSE_DIRECTION.forward)
     );
-    this.trashCanPlanar = this.basis.toPlanar(this.trashCanPosition);
 
-    this.folderLayout = buildFolderGridCells(this.worldSize, this.prng, this.trashCanPlanar);
-    this.spawnSampler = this.createSpawnSampler();
+    // Distance-along-the-course for each element, spaced so the open-air gap
+    // between consecutive footprints is COURSE_AIR_GAP (the entry point has
+    // no footprint of its own, hence the 0 below).
+    const gapToPlatform1 = COURSE_PLATFORM_ALONG_HALF + COURSE_AIR_GAP;
+    const gapToPlatform2 = COURSE_PLATFORM_ALONG_HALF * 2 + COURSE_AIR_GAP;
+    const gapToFolder = COURSE_PLATFORM_ALONG_HALF + COURSE_AIR_GAP + FOLDER_ALONG_HALF;
+    const entryDistance = COURSE_ENTRY_DISTANCE;
+    const platform1Distance = entryDistance + gapToPlatform1;
+    const platform2Distance = platform1Distance + gapToPlatform2;
+    const folderDistance = platform2Distance + gapToFolder;
+
+    this.courseEntryPlanar = pointAlongCourse(entryDistance);
+    this.coursePlatform1Planar = pointAlongCourse(platform1Distance);
+    this.coursePlatform2Planar = pointAlongCourse(platform2Distance);
+    this.courseFolderPlanar = pointAlongCourse(folderDistance);
+
+    // One checkpoint per gap, at its open-air midpoint (accounting for the
+    // differing footprint half-extents on each side) rather than either
+    // platform's own center - see getCourseFallCheckpoints().
+    this.courseFallCheckpoints = [
+      {
+        planar: pointAlongCourse(entryDistance + (gapToPlatform1 - COURSE_PLATFORM_ALONG_HALF) / 2),
+        height: COURSE_PLATFORM_1_HEIGHT,
+      },
+      {
+        planar: pointAlongCourse(platform1Distance + gapToPlatform2 / 2),
+        height: COURSE_PLATFORM_2_HEIGHT,
+      },
+      {
+        planar: pointAlongCourse(platform2Distance + (gapToFolder + COURSE_PLATFORM_ALONG_HALF - FOLDER_ALONG_HALF) / 2),
+        height: FOLDER_BODY_SIZE.up,
+      },
+    ];
+
+    const courseKeepoutPoints = [this.coursePlatform1Planar, this.coursePlatform2Planar, this.courseFolderPlanar];
+
+    this.folderLayout = buildFolderGridCells(this.worldSize, this.prng, courseKeepoutPoints);
+    this.spawnSampler = this.createSpawnSampler(courseKeepoutPoints);
 
     this.physicsWorld = null;
     this.rapier = null;
@@ -150,7 +233,7 @@ export class DesktopEnvironment {
     this.createLighting();
     this.createGround();
     this.createFolders();
-    this.createTrashCan();
+    this.createCourse();
     this.scene.add(this.group);
     return this;
   }
@@ -186,27 +269,13 @@ export class DesktopEnvironment {
       metalness: 0,
     });
 
-    // A real hole under the entry ring, not just a solid plane: without it,
-    // the ground (visible only from above) sits between the elevated follow
-    // camera and the Trash Can interior below, hiding it completely.
-    const halfSize = this.worldSize * 0.5;
-    const shape = new THREE.Shape();
-    shape.moveTo(-halfSize, -halfSize);
-    shape.lineTo(halfSize, -halfSize);
-    shape.lineTo(halfSize, halfSize);
-    shape.lineTo(-halfSize, halfSize);
-    shape.closePath();
-    const hole = new THREE.Path();
-    hole.absarc(this.trashCanPlanar.right, this.trashCanPlanar.forward, TRASH_CAN_ENTRY_RING_OUTER, 0, Math.PI * 2, false);
-    shape.holes.push(hole);
-
-    const ground = new THREE.Mesh(new THREE.ShapeGeometry(shape, 48), material);
+    const ground = new THREE.Mesh(
+      new THREE.PlaneGeometry(this.worldSize, this.worldSize),
+      material
+    );
     ground.position.copy(this.basis.fromBasisComponents(0, this.floorUp, 0));
     ground.quaternion.copy(this.planeRotation);
     ground.receiveShadow = true;
-    // Also casts a shadow so the Trash Can interior built just beneath it
-    // (Phase 4) reads as genuinely darker without extra fake-dark hacks.
-    ground.castShadow = true;
     this.group.add(ground);
     this.groundMesh = ground;
   }
@@ -255,45 +324,47 @@ export class DesktopEnvironment {
     }
   }
 
-  createTrashCan() {
-    const bodyMaterial = new THREE.MeshStandardMaterial({
-      color: TRASH_CAN_COLOR,
-      roughness: 0.5,
-      metalness: 0.1,
-      transparent: true,
-      opacity: 0.55,
-      side: THREE.DoubleSide,
-    });
-    const body = new THREE.Mesh(
-      new THREE.CylinderGeometry(TRASH_CAN_RADIUS, TRASH_CAN_RADIUS * 1.08, TRASH_CAN_HEIGHT, 24, 1, true),
-      bodyMaterial
-    );
-    body.position.copy(this.basis.fromBasisComponents(
-      this.trashCanPlanar.right,
-      this.floorUp + TRASH_CAN_HEIGHT * 0.5,
-      this.trashCanPlanar.forward
-    ));
-    body.quaternion.copy(this.objectRotation);
-    this.group.add(body);
-
-    const entryRing = new THREE.Mesh(
-      new THREE.RingGeometry(TRASH_CAN_ENTRY_RING_INNER, TRASH_CAN_ENTRY_RING_OUTER, 32),
-      new THREE.MeshStandardMaterial({
-        color: 0xe4e9ee,
-        roughness: 0.9,
-        side: THREE.DoubleSide,
-      })
-    );
-    entryRing.position.copy(this.basis.fromBasisComponents(
-      this.trashCanPlanar.right,
-      this.floorUp + 0.01,
-      this.trashCanPlanar.forward
-    ));
-    entryRing.quaternion.copy(this.planeRotation);
-    this.group.add(entryRing);
+  createCoursePlatformMesh() {
+    const mesh = new THREE.Mesh(coursePlatformGeometry, coursePlatformMaterial);
+    mesh.quaternion.copy(this.folderRotation(this.courseYaw));
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
+    mesh.add(createContactShadow({ radius: FOLDER_SHADOW_RADIUS, basis: this.basis }));
+    return mesh;
   }
 
-  createSpawnSampler() {
+  // Easy jump course, in the continuity of the desktop (no separate scene or
+  // teleport): two stepping platforms at increasing height, then one extra
+  // folder standing normally on the ground whose roof - one more easy hop up
+  // - holds the final fragment.
+  createCourse() {
+    const platform1 = this.createCoursePlatformMesh();
+    platform1.position.copy(this.basis.fromBasisComponents(
+      this.coursePlatform1Planar.right,
+      this.floorUp + COURSE_PLATFORM_1_HEIGHT - COURSE_PLATFORM_SIZE.up * 0.5,
+      this.coursePlatform1Planar.forward
+    ));
+    this.group.add(platform1);
+
+    const platform2 = this.createCoursePlatformMesh();
+    platform2.position.copy(this.basis.fromBasisComponents(
+      this.coursePlatform2Planar.right,
+      this.floorUp + COURSE_PLATFORM_2_HEIGHT - COURSE_PLATFORM_SIZE.up * 0.5,
+      this.coursePlatform2Planar.forward
+    ));
+    this.group.add(platform2);
+
+    const courseFolder = this.createFolderMesh();
+    courseFolder.position.copy(this.basis.fromBasisComponents(
+      this.courseFolderPlanar.right,
+      this.floorUp,
+      this.courseFolderPlanar.forward
+    ));
+    courseFolder.quaternion.copy(this.folderRotation(this.courseYaw));
+    this.group.add(courseFolder);
+  }
+
+  createSpawnSampler(courseKeepoutPoints) {
     const halfSize = this.worldSize * 0.5 - FOLDER_WORLD_MARGIN;
 
     const blockRegions = this.folderLayout.map((folder) => ({
@@ -303,12 +374,14 @@ export class DesktopEnvironment {
       clearance: 1.5,
     }));
 
-    blockRegions.push({
-      type: SPAWN_REGION_TYPES.CIRCLE,
-      center: this.trashCanPlanar,
-      radius: TRASH_CAN_KEEPOUT_RADIUS,
-      clearance: 0,
-    });
+    for (const point of courseKeepoutPoints) {
+      blockRegions.push({
+        type: SPAWN_REGION_TYPES.CIRCLE,
+        center: point,
+        radius: COURSE_KEEPOUT_RADIUS,
+        clearance: 0,
+      });
+    }
 
     return new SpawnAreaSampler({
       bounds: { rightMin: -halfSize, rightMax: halfSize, forwardMin: -halfSize, forwardMax: halfSize },
@@ -327,7 +400,7 @@ export class DesktopEnvironment {
   }
 
   // Desktop-scattered fragment positions: away from the player's spawn point
-  // and from each other, never inside a folder or the trash can (same
+  // and from each other, never inside a folder or the course footprint (same
   // exclusions as samplePlayerSpawn, via the shared spawnSampler).
   sampleFragmentPositions(count, prng = this.prng, spawnPlanar = { right: 0, forward: 0 }) {
     const planarPoints = [];
@@ -356,6 +429,33 @@ export class DesktopEnvironment {
     }
 
     return planarPoints.map((point) => this.basis.fromBasisComponents(point.right, this.floorUp, point.forward));
+  }
+
+  // Ground point just before the first platform: where a missed jump sends
+  // the player back to.
+  getCourseEntryPoint() {
+    return this.basis.fromBasisComponents(this.courseEntryPlanar.right, this.floorUp, this.courseEntryPlanar.forward);
+  }
+
+  // Roof of the final folder, where the last fragment sits (PickupObject
+  // floats it a bit further above whatever height it's given).
+  getCourseFragmentPosition() {
+    return this.basis.fromBasisComponents(
+      this.courseFolderPlanar.right,
+      this.floorUp + FOLDER_BODY_SIZE.up,
+      this.courseFolderPlanar.forward
+    );
+  }
+
+  // One checkpoint per jump of the course, at each gap's open-air midpoint
+  // and the far platform's expected height: used to detect a missed jump
+  // (player fallen well below that height while still over the gap) and
+  // send them back to getCourseEntryPoint().
+  getCourseFallCheckpoints() {
+    return this.courseFallCheckpoints.map(({ planar, height }) => ({
+      position: this.basis.fromBasisComponents(planar.right, this.floorUp + height, planar.forward),
+      captureRadius: COURSE_FALL_CAPTURE_RADIUS,
+    }));
   }
 
   createStaticCuboidCollider(box, rotation, friction = 1) {
@@ -403,6 +503,36 @@ export class DesktopEnvironment {
         this.createStaticCuboidCollider(folderBox, this.folderRotation(folder.yaw), FOLDER_COLLIDER_FRICTION)
       );
     }
+
+    const coursePlatforms = [
+      { planar: this.coursePlatform1Planar, height: COURSE_PLATFORM_1_HEIGHT },
+      { planar: this.coursePlatform2Planar, height: COURSE_PLATFORM_2_HEIGHT },
+    ];
+    for (const platform of coursePlatforms) {
+      const platformBox = {
+        right: platform.planar.right,
+        up: this.floorUp + platform.height - COURSE_PLATFORM_SIZE.up * 0.5,
+        forward: platform.planar.forward,
+        spanRight: COURSE_PLATFORM_SIZE.right,
+        spanUp: COURSE_PLATFORM_SIZE.up,
+        spanForward: COURSE_PLATFORM_SIZE.forward,
+      };
+      this.physicsColliders.push(
+        this.createStaticCuboidCollider(platformBox, this.folderRotation(this.courseYaw), FOLDER_COLLIDER_FRICTION)
+      );
+    }
+
+    const courseFolderBox = {
+      right: this.courseFolderPlanar.right,
+      up: this.floorUp + FOLDER_BODY_SIZE.up * 0.5,
+      forward: this.courseFolderPlanar.forward,
+      spanRight: FOLDER_BODY_SIZE.right,
+      spanUp: FOLDER_BODY_SIZE.up,
+      spanForward: FOLDER_BODY_SIZE.forward,
+    };
+    this.physicsColliders.push(
+      this.createStaticCuboidCollider(courseFolderBox, this.folderRotation(this.courseYaw), FOLDER_COLLIDER_FRICTION)
+    );
 
     const halfSize = this.worldSize * 0.5;
     const boundsWalls = createWorldBoundsColliders({

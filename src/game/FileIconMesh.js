@@ -41,7 +41,7 @@ function buildFlatMesh(shape, depth, color) {
 }
 
 // The restored file: a document icon with a folded top-right corner,
-// standing like the guard squircle (no lie-flat rotation needed).
+// standing upright (no lie-flat rotation needed).
 export function createFileIconModel() {
   const body = buildFlatMesh(buildFileOutlineShape(), ICON_THICKNESS, ICON_COLOR);
   const fold = buildFlatMesh(buildFoldShape(), ICON_THICKNESS + 0.01, FOLD_COLOR);

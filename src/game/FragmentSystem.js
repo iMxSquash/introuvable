@@ -64,9 +64,9 @@ export class FragmentSystem {
       const pickup = this.pickups[index];
       pickup.animate(deltaSeconds);
 
-      // Full 3D distance (not planar): the final fragment sits deep inside the
-      // Trash Can interior, directly beneath the desktop's trash can landmark,
-      // so a planar-only check would false-positive while walking above it.
+      // Full 3D distance (not planar): the final fragment sits on top of the
+      // course's folder, well above ground level, so a planar-only check
+      // would false-positive while walking underneath it.
       const collectRadius = pickup.radius + COLLECTION_RADIUS_PADDING;
       const distanceSq = pickup.position.distanceToSquared(playerPosition);
       if (distanceSq <= collectRadius * collectRadius) {
