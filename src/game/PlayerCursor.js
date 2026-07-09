@@ -92,6 +92,17 @@ export class PlayerCursor {
     this.modelController.reset(position);
   }
 
+  // Shifts the cursor by a delta without resetting velocity/grounded/model
+  // orientation, unlike teleportTo: used to carry the player along a moving
+  // platform they're standing on (the platform itself moved, the player's
+  // own motion state hasn't changed).
+  nudge(deltaVector) {
+    const newPosition = this.position.add(deltaVector);
+    this.resolver.syncActor(this.actor, newPosition);
+    this.targetController.setState({ position: newPosition });
+    this.cardinalController.setState({ position: newPosition });
+  }
+
   update({ deltaSeconds, keyboard }) {
     const keyboardActive = Boolean(
       keyboard.forward || keyboard.backward || keyboard.left || keyboard.right

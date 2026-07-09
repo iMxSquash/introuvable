@@ -4,8 +4,9 @@ import { DEFAULT_PRNG } from '../modules/math/RandomUtils.js';
 import { disposeObject3D } from '../modules/world/Object3DUtils.js';
 import { createWorldBoundsColliders } from '../modules/world/environment/WorldBoundsColliderFactory.js';
 import { SpawnAreaSampler, SPAWN_REGION_TYPES } from '../modules/world/environment/SpawnAreaSampler.js';
-import { FOLDER_BLUE, TRASH_GRAY } from './Palette.js';
+import { FOLDER_BLUE } from './Palette.js';
 import { createContactShadow } from './ContactShadow.js';
+import { JumpCourse } from './JumpCourse.js';
 
 // Provisional macOS-ish tones. The real wallpaper texture is added once the
 // actual portfolio wallpaper asset exists (none is committed yet in the
@@ -14,7 +15,6 @@ import { createContactShadow } from './ContactShadow.js';
 const PLACEHOLDER_GROUND_COLOR = 0x8fadd1;
 const PLACEHOLDER_SKY_COLOR = 0xc7d7ea;
 const FOLDER_COLOR = FOLDER_BLUE;
-const COURSE_PLATFORM_COLOR = TRASH_GRAY;
 const FOLDER_SHADOW_RADIUS = 3.2;
 
 const FOLDER_BODY_SIZE = Object.freeze({ right: 4.4, up: 3.0, forward: 3.2 });
@@ -26,45 +26,72 @@ const FOLDER_WORLD_MARGIN = 9;
 const SPAWN_KEEPOUT_RADIUS = 12;
 const FOLDER_COLLIDER_FRICTION = 0.9;
 
-// The easy jump-platforming course: a couple of stepping platforms at
-// increasing height, leading to one extra folder standing normally on the
-// ground - its roof (reachable with one more easy hop) holds the final
-// fragment. Built along `COURSE_DIRECTION`, a fixed diagonal in (right,
-// forward) chosen to match the screen-right direction of this game's fixed
-// isometric camera (`CAMERA_RIG_OPTIONS.azimuth = Math.PI / 4` in
-// `main.js`): with that azimuth, screen-right is world direction
-// `(cos(azimuth), -sin(azimuth))`, i.e. exactly `(√2/2, -√2/2)`. This class
-// stays camera-agnostic otherwise, so the direction is a plain constant
-// rather than an imported azimuth.
-const COURSE_DIRECTION = Object.freeze({ right: Math.SQRT1_2, forward: -Math.SQRT1_2 });
-const COURSE_ENTRY_DISTANCE = 18;
-const COURSE_PLATFORM_1_HEIGHT = 1.0;
-const COURSE_PLATFORM_2_HEIGHT = 2.0;
-// Wider than long: a comfortable landing pad. Rotated to face along
-// COURSE_DIRECTION (see `courseYaw` below), so its "forward" span is the
-// half-length actually eaten into the jump distance, not a diagonal corner.
-const COURSE_PLATFORM_SIZE = Object.freeze({ right: 3.5, up: 0.5, forward: 2 });
-const COURSE_PLATFORM_ALONG_HALF = COURSE_PLATFORM_SIZE.forward / 2;
-const FOLDER_ALONG_HALF = FOLDER_BODY_SIZE.forward / 2;
-// Clear horizontal air gap aimed for at each jump - comfortably inside the
-// jump range given `jumpVelocity`/`gravity`/`walkSpeed` (BaseCharacterMotionController).
-const COURSE_AIR_GAP = 3;
-// Small enough to sit inside each gap's open-air span without reaching
-// either platform's own footprint (verified against COURSE_AIR_GAP above).
+// Screen-relative directions for this game's fixed isometric camera
+// (`CAMERA_RIG_OPTIONS.azimuth = Math.PI / 4` in `main.js`): screen-right is
+// world direction `(cos(azimuth), -sin(azimuth))`, screen-forward (away from
+// camera) is `(sin(azimuth), cos(azimuth))` - with that azimuth both reduce
+// to plain `±Math.SQRT1_2`. Kept as constants here (rather than importing
+// the azimuth) so this class stays camera-agnostic otherwise.
+const SCREEN_RIGHT = Object.freeze({ right: Math.SQRT1_2, forward: -Math.SQRT1_2 });
+const SCREEN_FORWARD = Object.freeze({ right: Math.SQRT1_2, forward: Math.SQRT1_2 });
+const SCREEN_BACKWARD = Object.freeze({ right: -Math.SQRT1_2, forward: -Math.SQRT1_2 });
+
+// Small enough that a fall-recovery checkpoint sits inside each gap's
+// open-air span without reaching either platform's own footprint.
 const COURSE_FALL_CAPTURE_RADIUS = 1;
 // Generous exclusion so no folder/spawn/fragment appears on or too close to
-// the course, regardless of platform rotation.
+// any course.
 const COURSE_KEEPOUT_RADIUS = 5;
 
-const FRAGMENT_SAMPLE_ATTEMPTS = 30;
-const FRAGMENT_MIN_DISTANCE_FROM_SPAWN = 14;
-const FRAGMENT_MIN_DISTANCE_BETWEEN = 8;
+// Three jump-platforming courses of increasing difficulty, each heading in a
+// different screen direction so they never cross paths. Easy: two static
+// stepping platforms. Medium: adds one moving (back-and-forth) platform.
+// Hard: narrower platforms, bigger gaps, two moving platforms running at
+// different rhythms. All three end on an extra folder standing normally on
+// the ground, whose roof (one more easy hop up) holds a fragment - total
+// course length is kept comfortably inside the world bounds (`worldSize=70`,
+// walls at ±35).
+const COURSE_CONFIGS = {
+  easy: {
+    direction: SCREEN_RIGHT,
+    entryDistance: 18,
+    airGap: 3,
+    platformSize: Object.freeze({ right: 3.5, up: 0.5, forward: 2 }),
+    platforms: [{ height: 1.0 }, { height: 2.0 }],
+  },
+  medium: {
+    direction: SCREEN_FORWARD,
+    entryDistance: 12,
+    airGap: 3,
+    platformSize: Object.freeze({ right: 3, up: 0.5, forward: 2 }),
+    platforms: [
+      { height: 1.0 },
+      { height: 2.0, moving: { amplitude: 0.7, periodSeconds: 2.2 } },
+      { height: 2.6 },
+    ],
+  },
+  hard: {
+    direction: SCREEN_BACKWARD,
+    entryDistance: 8,
+    airGap: 3.5,
+    platformSize: Object.freeze({ right: 2.5, up: 0.5, forward: 1.6 }),
+    platforms: [
+      { height: 1.0, moving: { amplitude: 0.8, periodSeconds: 2.0 } },
+      { height: 1.8 },
+      { height: 2.5, moving: { amplitude: 1.0, periodSeconds: 1.7 } },
+    ],
+  },
+};
 
 const WORLD_BOUNDS_WALL_HEIGHT = 16;
 const WORLD_BOUNDS_WALL_THICKNESS = 1.6;
 
 const AMBIENT_LIGHT_COLOR = 0xffffff;
 const SHADOW_MAP_SIZE = 2048;
+
+const FRAGMENT_SAMPLE_ATTEMPTS = 30;
+const FRAGMENT_MIN_DISTANCE_FROM_SPAWN = 14;
+const FRAGMENT_MIN_DISTANCE_BETWEEN = 8;
 
 // Selected via the optional `?theme=dark|light` integration contract (see
 // main.js) so the desktop can match the portfolio's own theme.
@@ -103,28 +130,6 @@ const folderMaterial = new THREE.MeshStandardMaterial({
   metalness: 0.05,
   flatShading: true,
 });
-
-const coursePlatformGeometry = new THREE.BoxGeometry(
-  COURSE_PLATFORM_SIZE.right,
-  COURSE_PLATFORM_SIZE.up,
-  COURSE_PLATFORM_SIZE.forward
-);
-// A distinct neutral tone from the folders' blue: signals "this is just a
-// stepping stone", not a collectible-bearing folder.
-const coursePlatformMaterial = new THREE.MeshStandardMaterial({
-  color: COURSE_PLATFORM_COLOR,
-  roughness: 0.8,
-  metalness: 0.05,
-  flatShading: true,
-});
-
-// Planar (right, forward) position at the given distance along the course.
-function pointAlongCourse(distance) {
-  return {
-    right: COURSE_DIRECTION.right * distance,
-    forward: COURSE_DIRECTION.forward * distance,
-  };
-}
 
 function buildFolderGridCells(worldSize, prng, courseKeepoutPoints) {
   const halfSize = worldSize * 0.5 - FOLDER_WORLD_MARGIN;
@@ -171,48 +176,21 @@ export class DesktopEnvironment {
     this.group = new THREE.Group();
     this.group.name = 'DesktopEnvironment';
 
-    // Yaw that turns an object's local "forward" span to point along
-    // COURSE_DIRECTION, so a platform/folder's own along-travel half-extent
-    // is a plain half-length instead of a diagonal corner distance.
-    this.courseYaw = this.basis.forwardToYaw(
-      this.basis.fromBasisComponents(COURSE_DIRECTION.right, 0, COURSE_DIRECTION.forward)
-    );
+    this.courses = {};
+    for (const [id, config] of Object.entries(COURSE_CONFIGS)) {
+      this.courses[id] = new JumpCourse({
+        basis: this.basis,
+        floorUp: this.floorUp,
+        objectRotation: this.objectRotation,
+        createFolderMesh: () => this.createFolderMesh(),
+        folderBodySize: FOLDER_BODY_SIZE,
+        fallCaptureRadius: COURSE_FALL_CAPTURE_RADIUS,
+        keepoutRadius: COURSE_KEEPOUT_RADIUS,
+        ...config,
+      });
+    }
 
-    // Distance-along-the-course for each element, spaced so the open-air gap
-    // between consecutive footprints is COURSE_AIR_GAP (the entry point has
-    // no footprint of its own, hence the 0 below).
-    const gapToPlatform1 = COURSE_PLATFORM_ALONG_HALF + COURSE_AIR_GAP;
-    const gapToPlatform2 = COURSE_PLATFORM_ALONG_HALF * 2 + COURSE_AIR_GAP;
-    const gapToFolder = COURSE_PLATFORM_ALONG_HALF + COURSE_AIR_GAP + FOLDER_ALONG_HALF;
-    const entryDistance = COURSE_ENTRY_DISTANCE;
-    const platform1Distance = entryDistance + gapToPlatform1;
-    const platform2Distance = platform1Distance + gapToPlatform2;
-    const folderDistance = platform2Distance + gapToFolder;
-
-    this.courseEntryPlanar = pointAlongCourse(entryDistance);
-    this.coursePlatform1Planar = pointAlongCourse(platform1Distance);
-    this.coursePlatform2Planar = pointAlongCourse(platform2Distance);
-    this.courseFolderPlanar = pointAlongCourse(folderDistance);
-
-    // One checkpoint per gap, at its open-air midpoint (accounting for the
-    // differing footprint half-extents on each side) rather than either
-    // platform's own center - see getCourseFallCheckpoints().
-    this.courseFallCheckpoints = [
-      {
-        planar: pointAlongCourse(entryDistance + (gapToPlatform1 - COURSE_PLATFORM_ALONG_HALF) / 2),
-        height: COURSE_PLATFORM_1_HEIGHT,
-      },
-      {
-        planar: pointAlongCourse(platform1Distance + gapToPlatform2 / 2),
-        height: COURSE_PLATFORM_2_HEIGHT,
-      },
-      {
-        planar: pointAlongCourse(platform2Distance + (gapToFolder + COURSE_PLATFORM_ALONG_HALF - FOLDER_ALONG_HALF) / 2),
-        height: FOLDER_BODY_SIZE.up,
-      },
-    ];
-
-    const courseKeepoutPoints = [this.coursePlatform1Planar, this.coursePlatform2Planar, this.courseFolderPlanar];
+    const courseKeepoutPoints = Object.values(this.courses).flatMap((course) => course.getKeepoutPoints());
 
     this.folderLayout = buildFolderGridCells(this.worldSize, this.prng, courseKeepoutPoints);
     this.spawnSampler = this.createSpawnSampler(courseKeepoutPoints);
@@ -233,9 +211,17 @@ export class DesktopEnvironment {
     this.createLighting();
     this.createGround();
     this.createFolders();
-    this.createCourse();
+    for (const course of Object.values(this.courses)) {
+      course.create();
+      this.group.add(course.group);
+    }
     this.scene.add(this.group);
     return this;
+  }
+
+  // Advances every course's moving platforms.
+  update(deltaSeconds) {
+    for (const course of Object.values(this.courses)) course.update(deltaSeconds);
   }
 
   createLighting() {
@@ -324,46 +310,6 @@ export class DesktopEnvironment {
     }
   }
 
-  createCoursePlatformMesh() {
-    const mesh = new THREE.Mesh(coursePlatformGeometry, coursePlatformMaterial);
-    mesh.quaternion.copy(this.folderRotation(this.courseYaw));
-    mesh.castShadow = true;
-    mesh.receiveShadow = true;
-    mesh.add(createContactShadow({ radius: FOLDER_SHADOW_RADIUS, basis: this.basis }));
-    return mesh;
-  }
-
-  // Easy jump course, in the continuity of the desktop (no separate scene or
-  // teleport): two stepping platforms at increasing height, then one extra
-  // folder standing normally on the ground whose roof - one more easy hop up
-  // - holds the final fragment.
-  createCourse() {
-    const platform1 = this.createCoursePlatformMesh();
-    platform1.position.copy(this.basis.fromBasisComponents(
-      this.coursePlatform1Planar.right,
-      this.floorUp + COURSE_PLATFORM_1_HEIGHT - COURSE_PLATFORM_SIZE.up * 0.5,
-      this.coursePlatform1Planar.forward
-    ));
-    this.group.add(platform1);
-
-    const platform2 = this.createCoursePlatformMesh();
-    platform2.position.copy(this.basis.fromBasisComponents(
-      this.coursePlatform2Planar.right,
-      this.floorUp + COURSE_PLATFORM_2_HEIGHT - COURSE_PLATFORM_SIZE.up * 0.5,
-      this.coursePlatform2Planar.forward
-    ));
-    this.group.add(platform2);
-
-    const courseFolder = this.createFolderMesh();
-    courseFolder.position.copy(this.basis.fromBasisComponents(
-      this.courseFolderPlanar.right,
-      this.floorUp,
-      this.courseFolderPlanar.forward
-    ));
-    courseFolder.quaternion.copy(this.folderRotation(this.courseYaw));
-    this.group.add(courseFolder);
-  }
-
   createSpawnSampler(courseKeepoutPoints) {
     const halfSize = this.worldSize * 0.5 - FOLDER_WORLD_MARGIN;
 
@@ -400,7 +346,7 @@ export class DesktopEnvironment {
   }
 
   // Desktop-scattered fragment positions: away from the player's spawn point
-  // and from each other, never inside a folder or the course footprint (same
+  // and from each other, never inside a folder or a course footprint (same
   // exclusions as samplePlayerSpawn, via the shared spawnSampler).
   sampleFragmentPositions(count, prng = this.prng, spawnPlanar = { right: 0, forward: 0 }) {
     const planarPoints = [];
@@ -431,31 +377,29 @@ export class DesktopEnvironment {
     return planarPoints.map((point) => this.basis.fromBasisComponents(point.right, this.floorUp, point.forward));
   }
 
-  // Ground point just before the first platform: where a missed jump sends
-  // the player back to.
-  getCourseEntryPoint() {
-    return this.basis.fromBasisComponents(this.courseEntryPlanar.right, this.floorUp, this.courseEntryPlanar.forward);
+  // Ground point just before a course's first platform: where a missed jump
+  // on that course sends the player back to.
+  getCourseEntryPoint(courseId) {
+    return this.courses[courseId].getEntryPoint();
   }
 
-  // Roof of the final folder, where the last fragment sits (PickupObject
+  // Roof of a course's final folder, where its fragment sits (PickupObject
   // floats it a bit further above whatever height it's given).
-  getCourseFragmentPosition() {
-    return this.basis.fromBasisComponents(
-      this.courseFolderPlanar.right,
-      this.floorUp + FOLDER_BODY_SIZE.up,
-      this.courseFolderPlanar.forward
-    );
+  getCourseFragmentPosition(courseId) {
+    return this.courses[courseId].getFragmentPosition();
   }
 
-  // One checkpoint per jump of the course, at each gap's open-air midpoint
-  // and the far platform's expected height: used to detect a missed jump
-  // (player fallen well below that height while still over the gap) and
-  // send them back to getCourseEntryPoint().
-  getCourseFallCheckpoints() {
-    return this.courseFallCheckpoints.map(({ planar, height }) => ({
-      position: this.basis.fromBasisComponents(planar.right, this.floorUp + height, planar.forward),
-      captureRadius: COURSE_FALL_CAPTURE_RADIUS,
-    }));
+  // Every fall-checkpoint across all 3 courses, each already carrying its
+  // own course's entry point - a missed jump always sends the player back to
+  // the start of whichever course they were on.
+  getAllCourseFallCheckpoints() {
+    return Object.values(this.courses).flatMap((course) => course.getFallCheckpoints());
+  }
+
+  // Every moving platform across all 3 courses, for the moving-platform
+  // rider (see main.js) to carry the player along.
+  getAllMovingPlatforms() {
+    return Object.values(this.courses).flatMap((course) => course.getMovingPlatforms());
   }
 
   createStaticCuboidCollider(box, rotation, friction = 1) {
@@ -504,35 +448,7 @@ export class DesktopEnvironment {
       );
     }
 
-    const coursePlatforms = [
-      { planar: this.coursePlatform1Planar, height: COURSE_PLATFORM_1_HEIGHT },
-      { planar: this.coursePlatform2Planar, height: COURSE_PLATFORM_2_HEIGHT },
-    ];
-    for (const platform of coursePlatforms) {
-      const platformBox = {
-        right: platform.planar.right,
-        up: this.floorUp + platform.height - COURSE_PLATFORM_SIZE.up * 0.5,
-        forward: platform.planar.forward,
-        spanRight: COURSE_PLATFORM_SIZE.right,
-        spanUp: COURSE_PLATFORM_SIZE.up,
-        spanForward: COURSE_PLATFORM_SIZE.forward,
-      };
-      this.physicsColliders.push(
-        this.createStaticCuboidCollider(platformBox, this.folderRotation(this.courseYaw), FOLDER_COLLIDER_FRICTION)
-      );
-    }
-
-    const courseFolderBox = {
-      right: this.courseFolderPlanar.right,
-      up: this.floorUp + FOLDER_BODY_SIZE.up * 0.5,
-      forward: this.courseFolderPlanar.forward,
-      spanRight: FOLDER_BODY_SIZE.right,
-      spanUp: FOLDER_BODY_SIZE.up,
-      spanForward: FOLDER_BODY_SIZE.forward,
-    };
-    this.physicsColliders.push(
-      this.createStaticCuboidCollider(courseFolderBox, this.folderRotation(this.courseYaw), FOLDER_COLLIDER_FRICTION)
-    );
+    for (const course of Object.values(this.courses)) course.createPhysicsColliders(world, rapier);
 
     const halfSize = this.worldSize * 0.5;
     const boundsWalls = createWorldBoundsColliders({
@@ -561,10 +477,12 @@ export class DesktopEnvironment {
     this.physicsColliders = [];
     this.physicsWorld = null;
     this.rapier = null;
+    for (const course of Object.values(this.courses ?? {})) course.disposePhysicsColliders();
   }
 
   dispose() {
     this.disposePhysicsColliders();
+    for (const course of Object.values(this.courses)) course.dispose();
     disposeObject3D(this.group);
   }
 }

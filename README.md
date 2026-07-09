@@ -28,7 +28,7 @@
 1. The player spawns on a giant desktop, dotted with macOS-style folders.
 2. Click (or tap) to move the cursor around; a keyboard fallback (WASD/arrows + Space to jump) is available.
 3. Collect file fragments scattered on the desktop; a Finder-style path bar and a counter track progress.
-4. The last fragment sits on top of a folder, reached via a short jump-platforming course in the continuity of the desktop. Missing a jump sends the player back to the course entry, no progress lost.
+4. Three jump-platforming courses, in the continuity of the desktop, each in a different direction and increasingly hard (the hardest ones add moving, back-and-forth platforms). Each ends on a folder whose roof holds a fragment; missing a jump sends the player back to that course's own entry, no progress lost.
 5. Collecting every fragment plays a short restoration cinematic and opens a Finder window with the recovered file, ready to be reopened back on [elwen.dev](https://elwen.dev).
 
 ## Features
@@ -36,7 +36,7 @@
 - Click-to-move cursor character with a WASD/arrow-key fallback, driven by a kinematic character controller and Rapier3D collisions
 - Isometric follow camera locked to the player
 - Fragment collection with a Finder-style HUD (path bar, counter, macOS-style toast notifications)
-- Easy jump-platforming course, in the continuity of the desktop, leading to the final fragment on top of a folder; missing a jump resets to the course entry
+- Three jump-platforming courses (easy, medium, hard) in the continuity of the desktop, the harder ones adding moving back-and-forth platforms, each leading to a fragment on top of a folder; missing a jump resets to that course's own entry
 - Jump support on keyboard (Space bar) and on mobile/tablet (on-screen jump button, alongside the touch joystick)
 - Restoration cinematic and Finder window on completion, with a top-level redirect back to elwen.dev
 - Run counter persisted in `localStorage` ("N files restored") for replayability

@@ -169,13 +169,14 @@ function pointerEventToNdc(event, canvas) {
   };
 }
 
-// Watches the desktop's jump course (built in DesktopEnvironment, in the
-// continuity of the world - no separate scene, no teleport to get there):
-// a missed jump is the player sunk well below a gap's expected floor height
-// while still over it, which sends them back to the course entry. No
-// fragment loss, matching the project's "never frustrating" philosophy.
+// Watches all 3 of the desktop's jump courses (built in DesktopEnvironment,
+// in the continuity of the world - no separate scene, no teleport to get
+// there): a missed jump is the player sunk well below a gap's expected floor
+// height while still over it, which sends them back to that course's own
+// entry point. No fragment loss, matching the project's "never frustrating"
+// philosophy.
 function createCourseFallRecovery({ environment, playerCursor, basis }) {
-  const checkpoints = environment.getCourseFallCheckpoints();
+  const checkpoints = environment.getAllCourseFallCheckpoints();
   let lastResetAtMs = -Infinity;
   let pendingCameraSnap = false;
 
@@ -189,7 +190,7 @@ function createCourseFallRecovery({ environment, playerCursor, basis }) {
 
       const heightBelowFloor = basis.upComponent(checkpoint.position) - basis.upComponent(playerPosition);
       if (heightBelowFloor >= COURSE_FALL_TOLERANCE) {
-        playerCursor.teleportTo(environment.getCourseEntryPoint());
+        playerCursor.teleportTo(checkpoint.entryPoint);
         lastResetAtMs = nowMs;
         pendingCameraSnap = true;
         break;
@@ -208,6 +209,46 @@ function createCourseFallRecovery({ environment, playerCursor, basis }) {
       checkFallThrough(nowMs);
     },
   };
+}
+
+// Rapier's kinematic character controller doesn't carry a character along a
+// moving platform automatically (see JumpCourse.js). Each frame, before the
+// player's own movement is resolved: if they were standing on a moving
+// platform's footprint as of the *previous* frame (one-frame lag, ~16ms at
+// 60fps, imperceptible), nudge them by that platform's delta this frame.
+function createMovingPlatformRider({ environment, playerCursor, basis }) {
+  let wasGrounded = false;
+
+  function applyCarry() {
+    if (!wasGrounded) return;
+
+    const playerPlanar = basis.toPlanar(playerCursor.position);
+    const playerHeight = basis.upComponent(playerCursor.position);
+
+    for (const platform of environment.getAllMovingPlatforms()) {
+      const { previousFootprintCenter, direction, alongHalf, acrossHalf, topHeight } = platform;
+      const deltaRight = playerPlanar.right - previousFootprintCenter.right;
+      const deltaForward = playerPlanar.forward - previousFootprintCenter.forward;
+      // Project onto the platform's own along/across axes (it's rotated to
+      // face `direction`, not necessarily aligned with the raw right/forward
+      // world axes) rather than a naive axis-aligned box check.
+      const along = deltaRight * direction.right + deltaForward * direction.forward;
+      const across = deltaRight * -direction.forward + deltaForward * direction.right;
+      const withinFootprint = Math.abs(along) <= alongHalf && Math.abs(across) <= acrossHalf;
+      const onTop = Math.abs(playerHeight - topHeight) <= 0.3;
+
+      if (withinFootprint && onTop) {
+        playerCursor.nudge(platform.delta);
+        break;
+      }
+    }
+  }
+
+  function noteGroundedState(grounded) {
+    wasGrounded = grounded;
+  }
+
+  return { applyCarry, noteGroundedState };
 }
 
 function setupClickToMove({ canvas, camera, playerCursor, environment, scene, basis }) {
@@ -251,6 +292,7 @@ function start({
   environment,
   fragmentSystem,
   courseFallRecovery,
+  movingPlatformRider,
   cinematic,
   isGameEnded,
 }) {
@@ -295,13 +337,19 @@ function start({
     previousSeconds = nowSeconds;
 
     // Once the last fragment is restored, freeze normal gameplay (movement,
-    // jump course, click-to-move) and let only the restoration cinematic play.
+    // jump courses, click-to-move) and let only the restoration cinematic play.
     if (!isGameEnded()) {
+      // Advance moving platforms and carry the player along before resolving
+      // this frame's own movement (see createMovingPlatformRider).
+      environment.update(deltaSeconds);
+      movingPlatformRider.applyCarry();
+
       const moveInput = combineMoveInputs(keyboard, touchJoystick.axes, touchJumpButton);
-      playerCursor.update({ deltaSeconds, keyboard: moveInput });
+      const snapshot = playerCursor.update({ deltaSeconds, keyboard: moveInput });
+      movingPlatformRider.noteGroundedState(snapshot.grounded);
       courseFallRecovery.update(performance.now());
       // Read the position fresh: courseFallRecovery.update() may have just
-      // teleported the player back to the course entry after a missed jump.
+      // teleported the player back to a course entry after a missed jump.
       const playerPosition = playerCursor.position;
 
       cameraRig.step({
@@ -362,13 +410,18 @@ const playerCursor = new PlayerCursor({
 });
 
 const courseFallRecovery = createCourseFallRecovery({ environment, playerCursor, basis });
+const movingPlatformRider = createMovingPlatformRider({ environment, playerCursor, basis });
 
 const fragmentSystem = new FragmentSystem({
   scene,
   environment,
   basis,
   playerSpawnPosition: playerSpawn,
-  finalFragmentPosition: environment.getCourseFragmentPosition(),
+  finalFragmentPosition: environment.getCourseFragmentPosition('easy'),
+  relocatedFragmentPositions: [
+    environment.getCourseFragmentPosition('medium'),
+    environment.getCourseFragmentPosition('hard'),
+  ],
   fileName: getRequestedFileName(),
 });
 createHudView({
@@ -407,6 +460,7 @@ createStartScreen({
       environment,
       fragmentSystem,
       courseFallRecovery,
+      movingPlatformRider,
       cinematic,
       isGameEnded: () => gameEnded,
     });

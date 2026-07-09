@@ -109,6 +109,42 @@ system at all - the player just walks and jumps there like anywhere else on the 
   circle-keepout idiom already used for the (now-removed) Trash Can, so no folder, spawn point, or
   desktop fragment ever lands on or too close to the course.
 
+Third rework: two more courses, "medium" and "hard", each heading in a different screen direction
+(`SCREEN_FORWARD`/`SCREEN_BACKWARD` in `DesktopEnvironment.js`, derived the same way as the original
+`SCREEN_RIGHT`) so all three fan out without crossing paths, and each ending on a folder holding one of
+the fragments *relocated* from the desktop's ground-scattered set (not new fragments - `FragmentSystem`'s
+total stays `REVEALABLE_PATH_SEGMENTS.length + 1`). The single-course logic was extracted into
+`src/game/JumpCourse.js` (constructed 3 times by `DesktopEnvironment`, one per difficulty config) since
+inlining three courses' worth of platform/collider/checkpoint logic directly in `DesktopEnvironment`
+would have overloaded that class.
+
+The harder two courses add **moving (back-and-forth) platforms** - the actual reason for the extraction,
+since Rapier's `KinematicCharacterController` has no built-in notion of "what is the character standing
+on": `computeColliderMovement()`/`computedGrounded()` only report a boolean, and the only relevant API
+(`computedCollision()`) exposes raw per-collision data, not a convenient "grounded on this body" query
+(checked against `@dimforge/rapier3d-compat`'s type defs). Concretely, a kinematic character controller
+does not get carried along a moving kinematic platform by itself - without extra work, a platform sliding
+out from under the player would just leave them standing in mid-air over its old spot. The fix: each
+moving platform (`JumpCourse.update()`) is a `RigidBodyDesc.kinematicPositionBased()` body oscillating
+sinusoidally along the course's own direction (same phase-accumulation idiom as `PickupObject.animate()`,
+just applied to a physics body's `setNextKinematicTranslation()` instead of a plain mesh), and reports its
+per-frame movement delta via `JumpCourse.getMovingPlatforms()`. `main.js`'s `createMovingPlatformRider()`
+checks, once per frame *before* resolving the player's own movement, whether the player was grounded and
+standing on a moving platform's footprint as of the end of the *previous* frame (a deliberate one-frame
+lag, ~16ms at 60fps, imperceptible - avoids having to inspect Rapier's internal collision list), and if so
+nudges the player by that platform's delta via a new `PlayerCursor.nudge()` (like `teleportTo()` but
+without resetting velocity/grounded, since the player's own motion state hasn't changed - only the ground
+moved under them). The footprint check projects onto the platform's own along/across axes (it's rotated
+to face its course's direction, not the raw world axes) rather than a naive axis-aligned box test.
+
+Fall-checkpoint sizing (`JumpCourse._layout()`) treats a moving platform's along-travel half-extent as its
+static half-extent *plus* its oscillation amplitude, so the checkpoint for the next gap always stays clear
+of the platform regardless of where it currently sits in its cycle - the same open-air-midpoint formula as
+before, just fed an inflated half-extent for moving elements. Each checkpoint now also carries its own
+course's entry point directly (`getFallCheckpoints()`), since `main.js`'s fall-recovery loop iterates all
+3 courses' checkpoints flattened together (`DesktopEnvironment.getAllCourseFallCheckpoints()`) and must
+send a missed jump back to whichever course it actually happened on, not a single shared entry point.
+
 | `user-interface/StorageSettingsStore.js` | JSON-backed localStorage read/write with safe fallbacks | Reused as-is | None | `src/game/GameProgress.js` wraps a `JsonSettingsStore` (`introuvable-progress` key) tracking `restoredCount` and `bestTimeMs`, updated once per completed restoration |
 
 New for Phase 5 (no direct GameBlocks module): `src/game/FileIconMesh.js` builds the restored file's 3D
