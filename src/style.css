@@ -130,71 +130,6 @@ body {
   }
 }
 
-.force-quit-overlay {
-  position: fixed;
-  inset: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: rgb(20 8 8 / 55%);
-  opacity: 0;
-  pointer-events: none;
-  z-index: 10;
-}
-
-.force-quit-overlay__label {
-  font-family: -apple-system, BlinkMacSystemFont, 'Inter', sans-serif;
-  font-size: 1.6rem;
-  font-weight: 600;
-  color: #fff;
-  text-shadow: 0 1px 4px rgb(0 0 0 / 40%);
-  opacity: 0;
-}
-
-.force-quit-overlay--flash {
-  animation: force-quit-flash 650ms ease-out;
-}
-
-.force-quit-overlay--flash .force-quit-overlay__label {
-  animation: force-quit-label 650ms ease-out;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .force-quit-overlay--flash,
-  .force-quit-overlay--flash .force-quit-overlay__label {
-    animation: none;
-  }
-}
-
-@keyframes force-quit-flash {
-  0% {
-    opacity: 0;
-  }
-  15% {
-    opacity: 1;
-  }
-  100% {
-    opacity: 0;
-  }
-}
-
-@keyframes force-quit-label {
-  0% {
-    opacity: 0;
-    transform: scale(0.92);
-  }
-  20% {
-    opacity: 1;
-    transform: scale(1);
-  }
-  80% {
-    opacity: 1;
-  }
-  100% {
-    opacity: 0;
-  }
-}
-
 /* Touch-primary devices only (phones/tablets): `pointer: coarse` reflects the
    *primary* input mechanism, so a touchscreen laptop with a mouse as primary
    input still reports `fine` and never sees the joystick. */
@@ -227,8 +162,34 @@ body {
   pointer-events: none;
 }
 
+.touch-jump-button {
+  display: none;
+  position: fixed;
+  right: max(1.5rem, env(safe-area-inset-right));
+  bottom: max(1.5rem, env(safe-area-inset-bottom));
+  width: 5rem;
+  height: 5rem;
+  border: none;
+  border-radius: 50%;
+  background: var(--panel-bg);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  box-shadow: 0 1px 3px rgb(0 0 0 / 15%);
+  color: inherit;
+  font-family: -apple-system, BlinkMacSystemFont, 'Inter', sans-serif;
+  font-size: 0.95rem;
+  font-weight: 600;
+  touch-action: none;
+  z-index: 5;
+}
+
+.touch-jump-button:active {
+  background: var(--panel-bg-strong);
+}
+
 @media (pointer: coarse) {
-  .touch-joystick {
+  .touch-joystick,
+  .touch-jump-button {
     display: block;
   }
 }

@@ -31,9 +31,10 @@ function getSharedGeometry() {
   return sharedGeometry;
 }
 
-// A soft radial-gradient decal for grounded objects (cursor, folders,
-// guards), cheaper and softer-looking than relying solely on the directional
-// light's shadow map. Geometry and texture are shared across every instance.
+// A soft radial-gradient decal for grounded objects (cursor, folders, course
+// platforms), cheaper and softer-looking than relying solely on the
+// directional light's shadow map. Geometry and texture are shared across
+// every instance.
 export function createContactShadow({ radius = 1, basis = DEFAULT_WORLD_BASIS } = {}) {
   const mesh = new THREE.Mesh(getSharedGeometry(), new THREE.MeshBasicMaterial({
     map: getSharedTexture(),

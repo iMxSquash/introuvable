@@ -14,6 +14,12 @@ const WALK_SPEED = 9;
 const CURSOR_STOP_RADIUS = 0.4;
 const TURN_LAG = 0.08;
 const GROUNDED_PROBE_DISTANCE = 0.3;
+// Lower than BaseCharacterMotionController's default (8.5, ~3.7m apex): the
+// jump course only gains ~1m per step (3m total up to the final folder
+// roof), so the default sent the cursor flying well above the platforms.
+// This still clears each step with margin - see DesktopEnvironment.js's
+// COURSE_* constants for the course's own sizing.
+const JUMP_VELOCITY = 6;
 
 export class PlayerCursor {
   constructor({ scene, physicsWorld, rapier, basis = DEFAULT_WORLD_BASIS, spawnPosition, cameraAzimuth = 0 }) {
@@ -50,7 +56,13 @@ export class PlayerCursor {
       groundedProbeDistance: GROUNDED_PROBE_DISTANCE,
     });
 
-    const sharedConfig = { walkSpeed: WALK_SPEED, sprintSpeed: WALK_SPEED, turnLag: TURN_LAG, basis };
+    const sharedConfig = {
+      walkSpeed: WALK_SPEED,
+      sprintSpeed: WALK_SPEED,
+      turnLag: TURN_LAG,
+      jumpVelocity: JUMP_VELOCITY,
+      basis,
+    };
     this.targetController = new WorldTargetCharacterMotionController({
       stopRadius: CURSOR_STOP_RADIUS,
       ...sharedConfig,
@@ -70,14 +82,25 @@ export class PlayerCursor {
     this.moveTarget = point.clone();
   }
 
-  // Instantly relocates the cursor (spawn respawn, Force Quit, zone
-  // transitions) bypassing the normal collision-resolved movement pipeline.
+  // Instantly relocates the cursor (spawn respawn, missed-jump course reset)
+  // bypassing the normal collision-resolved movement pipeline.
   teleportTo(position) {
     this.resolver.syncActor(this.actor, position);
     this.targetController.setState({ position, velocity: { x: 0, y: 0, z: 0 }, grounded: true });
     this.cardinalController.setState({ position, velocity: { x: 0, y: 0, z: 0 }, grounded: true });
     this.moveTarget = null;
     this.modelController.reset(position);
+  }
+
+  // Shifts the cursor by a delta without resetting velocity/grounded/model
+  // orientation, unlike teleportTo: used to carry the player along a moving
+  // platform they're standing on (the platform itself moved, the player's
+  // own motion state hasn't changed).
+  nudge(deltaVector) {
+    const newPosition = this.position.add(deltaVector);
+    this.resolver.syncActor(this.actor, newPosition);
+    this.targetController.setState({ position: newPosition });
+    this.cardinalController.setState({ position: newPosition });
   }
 
   update({ deltaSeconds, keyboard }) {
@@ -89,7 +112,7 @@ export class PlayerCursor {
     const activeController = keyboardActive ? this.cardinalController : this.targetController;
     const intent = keyboardActive
       ? this.cardinalController.planMovement({ ...keyboard, deltaSeconds })
-      : this.targetController.planMovement({ moveTarget: this.moveTarget, deltaSeconds });
+      : this.targetController.planMovement({ moveTarget: this.moveTarget, jump: keyboard.jump, deltaSeconds });
 
     this.resolver.beginFrame();
     this.resolver.queueMove(this.actor, intent);

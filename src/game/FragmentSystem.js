@@ -7,7 +7,6 @@ import { playPickupSound } from './PickupSound.js';
 
 export const REVEALABLE_PATH_SEGMENTS = ['Users', 'elwen', 'Documents', 'Sites', 'portfolio', 'Desktop'];
 const TOTAL_FRAGMENTS = REVEALABLE_PATH_SEGMENTS.length + 1;
-const DESKTOP_FRAGMENT_COUNT = REVEALABLE_PATH_SEGMENTS.length;
 const COLLECTION_RADIUS_PADDING = 0.6;
 const PICKUP_ANNOUNCEMENT = 'Fragment récupéré';
 const NOTIFICATION_LIFETIME_MS = 1800;
@@ -20,6 +19,7 @@ export class FragmentSystem {
     basis = DEFAULT_WORLD_BASIS,
     playerSpawnPosition,
     finalFragmentPosition,
+    relocatedFragmentPositions = [],
     fileName,
   }) {
     this.scene = scene;
@@ -34,11 +34,19 @@ export class FragmentSystem {
     });
     this.notifications = new NotificationQueue(NOTIFICATION_MAX_VISIBLE, NOTIFICATION_LIFETIME_MS, 'fragment-toast-');
 
+    // A few of the REVEALABLE_PATH_SEGMENTS-worth of desktop fragments are
+    // relocated onto the harder jump courses instead of scattered on the
+    // ground - same 'fragment' type (still reveals a Finder path segment),
+    // just harder to reach. Total stays REVEALABLE_PATH_SEGMENTS.length.
     const spawnPlanar = basis.toPlanar(playerSpawnPosition);
-    const desktopPositions = environment.sampleFragmentPositions(DESKTOP_FRAGMENT_COUNT, environment.prng, spawnPlanar);
+    const desktopCount = REVEALABLE_PATH_SEGMENTS.length - relocatedFragmentPositions.length;
+    const desktopPositions = environment.sampleFragmentPositions(desktopCount, environment.prng, spawnPlanar);
 
     this.pickups = [
       ...desktopPositions.map((position, index) => this._spawnPickup(position, `fragment-${index}`, 'fragment')),
+      ...relocatedFragmentPositions.map((position, index) => (
+        this._spawnPickup(position.clone(), `fragment-course-${index}`, 'fragment')
+      )),
       this._spawnPickup(finalFragmentPosition.clone(), 'fragment-final', 'fragment-final'),
     ];
   }
@@ -64,9 +72,9 @@ export class FragmentSystem {
       const pickup = this.pickups[index];
       pickup.animate(deltaSeconds);
 
-      // Full 3D distance (not planar): the final fragment sits deep inside the
-      // Trash Can interior, directly beneath the desktop's trash can landmark,
-      // so a planar-only check would false-positive while walking above it.
+      // Full 3D distance (not planar): the final fragment sits on top of the
+      // course's folder, well above ground level, so a planar-only check
+      // would false-positive while walking underneath it.
       const collectRadius = pickup.radius + COLLECTION_RADIUS_PADDING;
       const distanceSq = pickup.position.distanceToSquared(playerPosition);
       if (distanceSq <= collectRadius * collectRadius) {

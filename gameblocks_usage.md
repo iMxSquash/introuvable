@@ -49,42 +49,101 @@ scripted full 7/7 collection run. The `?path=` query filename is parsed and sani
 (character allowlist, length cap) in `main.js`'s `getRequestedFileName()`; Phase 7 formalizes the full
 sanitization contract described in the TODO.
 
-| `behavior/AgentPathNavigator.js` | Converts position + target waypoint into a planar direction/speed intent | Reused as-is | None | `src/game/Guard.js` computes each guard's move intent toward its current waypoint every frame |
-| `behavior/WaypointProgressTracker.js` | Advances a waypoint index once the reach distance is met, closed-loop or one-way | Reused as-is | None | `src/game/Guard.js`; desktop guards use a true closed circle, interior guards use a closed "there and back" cycle built from `buildPingPongWaypoints()` in `main.js` so the same closed-loop tracker produces a ping-pong arc patrol without any module change |
-| `behavior/NearbyAvoidanceSteering.js` | Steers an actor away from nearby agents while keeping its intended direction | Reused as-is | None | `src/game/Guard.js`; each guard only receives its own group (desktop or interior) as neighbors, never both — the module's distance check is planar-only, so mixing groups would falsely treat a guard directly above/below another (different depth, same desktop-vs-interior column) as a nearby neighbor |
 | `world/object/PickupObject.js`, `world/object/factory/PickupVisualFactory.js` | (see Phase 3) | — | — | Final fragment now spawns at `TrashCanInterior.getFragmentPosition()` (bottom chamber) instead of the Phase 3 placeholder desktop position |
 
 New for Phase 4 (no direct GameBlocks module, following the reuse-first patterns of already-copied
 modules): `src/game/TrashCanInterior.js` builds the descending spiral corridor and bottom chamber as
 hand-built world-space trimesh geometry/colliders, the same "bake world positions into a custom
 BufferGeometry, one fixed rigid body per trimesh" technique already used by the copied
-`ArenaEnvironment.js`/`WorldBoundsColliderFactory.js`. `src/game/GuardMesh.js` builds the guard's
-squircle icon (`ExtrudeGeometry` + rounded-corner `Shape`), the same technique as the Phase 2 cursor
-mesh. `src/game/ForceQuitEffect.js` and `src/game/PickupSound.js` share one lazily-created
-`AudioContext` via `src/game/AudioContextSingleton.js` (avoids instantiating two audio contexts).
+`ArenaEnvironment.js`/`WorldBoundsColliderFactory.js`.
 
 Known API break found in Phase 4: contact/collision checks that mix "desktop" and "interior" actors
-must never use planar-only distance (`basis.distanceSqPlanar`, or `NearbyAvoidanceSteering`'s internal
-check) across the two groups, since both sit at the same (right, forward) column at wildly different
-heights (interior is built directly beneath the desktop's Trash Can). `FragmentSystem`'s collection
-check was changed from planar to full 3D distance for this reason (the final fragment moved deep
-underground in Phase 4); guard contact detection and guard-to-guard avoidance instead stay planar but
-are scoped to only ever compare actors within the same zone (desktop guards vs. desktop guards,
-interior guards vs. interior guards, checked against the player's current zone).
+must never use planar-only distance (`basis.distanceSqPlanar`) across the two groups, since both sit at
+the same (right, forward) column at wildly different heights (interior is built directly beneath the
+desktop's Trash Can). `FragmentSystem`'s collection check was changed from planar to full 3D distance
+for this reason (the final fragment moved deep underground in Phase 4).
 
-Design note: the desktop ground plane is single-sided and fully opaque, and the follow camera always
-sits `height` units above the player regardless of the player's own altitude - so once the interior
-existed beneath the Trash Can, the plane sat directly between the elevated camera and the underground
-player, hiding the entire interior. Fixed by cutting an actual hole in the ground's `ShapeGeometry`
-under the entry ring (`DesktopEnvironment.createGround()`); the physics collider is left solid there on
-purpose, since the zone transition is a scripted teleport (see below), not a physical fall-through.
+Post-Phase 4 rework: the guarded interior ("le donjon" — `behavior/AgentPathNavigator.js`,
+`behavior/WaypointProgressTracker.js`, `behavior/NearbyAvoidanceSteering.js`, `src/game/Guard.js`,
+`src/game/GuardMesh.js`, `src/game/ForceQuitEffect.js`) was removed and replaced with an easy
+jump-platforming course: `TrashCanInterior.js`'s descending spiral now skips floor/wall geometry (and
+colliders) on a handful of segments (`GAP_SEGMENT_INDICES`), turning it into a series of platforms with
+jump gaps; `TrashCanInterior.getGapCheckpoints()` exposes each gap's expected floor position so
+`main.js`'s `createObstacleCourseChallenge()` can detect a missed jump (fallen well below the expected
+floor while over a gap) and reset the player to the course entry — reusing the existing zone-transition
+`transitionTo()`/cooldown/re-arm machinery, no new pattern needed. This also finally exercises the
+`jump` parameter that `actor-motion/character/BaseCharacterMotionController.js` (and both concrete
+motion controllers) already accepted since Phase 2 but no input ever set: `main.js` now tracks a Space
+bar key state and a new `src/game/TouchJumpButton.js` (same pointer-event factory pattern as
+`TouchJoystick.js`, gated by the same `pointer: coarse` CSS media query) tracks a touch button, both
+merged into the same input object consumed by `PlayerCursor.update()`.
 
-Design note: entering/exiting the Trash Can is a teleport triggered by proximity to the entry ring
-(desktop) or the top of the spiral (interior), not a physical walk through the visual hole. A first
-version re-triggered the opposite transition as soon as a time-based cooldown expired if the player
-stood still exactly on the arrival point (both trigger points are where `transitionTo` actually drops
-the player). Fixed with a re-arm gate: after any transition, the same trigger cannot fire again until
-the player has moved more than `ZONE_REARM_RADIUS` away from where they were dropped.
+Design notes on the ground-hole/zone-teleport approach above (single-sided ground plane cut open under
+the entry ring, `transitionTo()`'s re-arm gate against re-triggering on the arrival point) are superseded
+by the second rework below and no longer apply - kept here only as a record of what was tried first.
+
+Second rework, on direct user feedback: the underground-course idea above still wasn't what was asked
+for. The Trash Can landmark itself (the translucent cylinder + entry ring in `DesktopEnvironment.js`)
+and `src/game/TrashCanInterior.js` are both removed entirely - no trace of a "Trash Can" location
+remains in the 3D world (the diegetic 404 copy, "your file was moved to the Trash", stays as flavor text
+independent of any literal prop). The jump course is rebuilt as **static world geometry directly in
+`DesktopEnvironment.js`**, in the continuity of the desktop (no separate scene, no zone/teleport-in
+system at all - the player just walks and jumps there like anywhere else on the desktop):
+- `COURSE_DIRECTION` is a fixed diagonal in (right, forward) chosen to match this game's fixed isometric
+  camera's screen-right direction (derived from `CAMERA_RIG_OPTIONS.azimuth = Math.PI / 4` in `main.js`,
+  using the same input-rotation formula already established by the
+  `WorldCardinalCharacterMotionController` azimuth fix - see above).
+- Two simple stepping-platform meshes at increasing height, plus one extra instance of the ordinary
+  folder mesh (`createFolderMesh()`) standing normally on the ground at the end - its roof, one more
+  easy hop up, holds the final fragment (`getCourseFragmentPosition()`). All three are rotated by a
+  shared `courseYaw` (via `basis.forwardToYaw()`) so their own along-`COURSE_DIRECTION` half-extent is a
+  plain half-length instead of a diagonal corner distance - this matters for sizing a comfortable,
+  consistent air gap between each jump without the platforms visually clipping into each other.
+- The only leftover gameplay logic is a small `createCourseFallRecovery()` in `main.js`: one checkpoint
+  per gap (`DesktopEnvironment.getCourseFallCheckpoints()`, each at the gap's open-air midpoint, not
+  either platform's own center, so standing on a lower platform is never mistaken for having fallen
+  through the gap ahead of it) teleports the player back to `getCourseEntryPoint()` on a missed jump -
+  the same distance/height-tolerance check as the removed `TrashCanInterior` version, just applied
+  above ground and with no "zone" concept to track.
+- Folder-grid generation and the shared `spawnSampler` both exclude the course's footprint via the same
+  circle-keepout idiom already used for the (now-removed) Trash Can, so no folder, spawn point, or
+  desktop fragment ever lands on or too close to the course.
+
+Third rework: two more courses, "medium" and "hard", each heading in a different screen direction
+(`SCREEN_FORWARD`/`SCREEN_BACKWARD` in `DesktopEnvironment.js`, derived the same way as the original
+`SCREEN_RIGHT`) so all three fan out without crossing paths, and each ending on a folder holding one of
+the fragments *relocated* from the desktop's ground-scattered set (not new fragments - `FragmentSystem`'s
+total stays `REVEALABLE_PATH_SEGMENTS.length + 1`). The single-course logic was extracted into
+`src/game/JumpCourse.js` (constructed 3 times by `DesktopEnvironment`, one per difficulty config) since
+inlining three courses' worth of platform/collider/checkpoint logic directly in `DesktopEnvironment`
+would have overloaded that class.
+
+The harder two courses add **moving (back-and-forth) platforms** - the actual reason for the extraction,
+since Rapier's `KinematicCharacterController` has no built-in notion of "what is the character standing
+on": `computeColliderMovement()`/`computedGrounded()` only report a boolean, and the only relevant API
+(`computedCollision()`) exposes raw per-collision data, not a convenient "grounded on this body" query
+(checked against `@dimforge/rapier3d-compat`'s type defs). Concretely, a kinematic character controller
+does not get carried along a moving kinematic platform by itself - without extra work, a platform sliding
+out from under the player would just leave them standing in mid-air over its old spot. The fix: each
+moving platform (`JumpCourse.update()`) is a `RigidBodyDesc.kinematicPositionBased()` body oscillating
+sinusoidally along the course's own direction (same phase-accumulation idiom as `PickupObject.animate()`,
+just applied to a physics body's `setNextKinematicTranslation()` instead of a plain mesh), and reports its
+per-frame movement delta via `JumpCourse.getMovingPlatforms()`. `main.js`'s `createMovingPlatformRider()`
+checks, once per frame *before* resolving the player's own movement, whether the player was grounded and
+standing on a moving platform's footprint as of the end of the *previous* frame (a deliberate one-frame
+lag, ~16ms at 60fps, imperceptible - avoids having to inspect Rapier's internal collision list), and if so
+nudges the player by that platform's delta via a new `PlayerCursor.nudge()` (like `teleportTo()` but
+without resetting velocity/grounded, since the player's own motion state hasn't changed - only the ground
+moved under them). The footprint check projects onto the platform's own along/across axes (it's rotated
+to face its course's direction, not the raw world axes) rather than a naive axis-aligned box test.
+
+Fall-checkpoint sizing (`JumpCourse._layout()`) treats a moving platform's along-travel half-extent as its
+static half-extent *plus* its oscillation amplitude, so the checkpoint for the next gap always stays clear
+of the platform regardless of where it currently sits in its cycle - the same open-air-midpoint formula as
+before, just fed an inflated half-extent for moving elements. Each checkpoint now also carries its own
+course's entry point directly (`getFallCheckpoints()`), since `main.js`'s fall-recovery loop iterates all
+3 courses' checkpoints flattened together (`DesktopEnvironment.getAllCourseFallCheckpoints()`) and must
+send a missed jump back to whichever course it actually happened on, not a single shared entry point.
 
 | `user-interface/StorageSettingsStore.js` | JSON-backed localStorage read/write with safe fallbacks | Reused as-is | None | `src/game/GameProgress.js` wraps a `JsonSettingsStore` (`introuvable-progress` key) tracking `restoredCount` and `bestTimeMs`, updated once per completed restoration |
 

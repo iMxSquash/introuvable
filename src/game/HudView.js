@@ -10,7 +10,7 @@ function formatFinderPath(fileName) {
     const revealedSegments = REVEALABLE_PATH_SEGMENTS.slice(0, state.desktopRevealCount);
     const segments = [ROOT_SEGMENT, ...revealedSegments];
     // The filename is the last path segment: only show it once every folder
-    // segment ahead of it has been revealed too, even if the Corbeille
+    // segment ahead of it has been revealed too, even if the final course
     // fragment (which unlocks it) was picked up earlier than that.
     const allFoldersRevealed = state.desktopRevealCount >= REVEALABLE_PATH_SEGMENTS.length;
     if (allFoldersRevealed && state.fileNameRevealed) segments.push(fileName);

@@ -6,7 +6,7 @@
     <title>Fichier introuvable — un mini-jeu 3D caché</title>
     <meta
       name="description"
-      content="Un fichier a disparu dans la Corbeille de ce Mac virtuel. Explorez le bureau, évitez les processus errants et restaurez-le avant qu'il ne soit trop tard."
+      content="Un fichier a disparu dans la Corbeille de ce Mac virtuel. Explorez le bureau, récupérez les fragments et restaurez-le avant qu'il ne soit trop tard."
     />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <link rel="stylesheet" href="/src/style.css" />
@@ -18,12 +18,12 @@
       <div id="fragment-counter" class="hud__fragment-counter"></div>
     </div>
     <div id="toast-container" class="toast-container" aria-live="polite"></div>
-    <div id="force-quit-overlay" class="force-quit-overlay" role="status" aria-live="assertive">
-      <span class="force-quit-overlay__label">Force Quit</span>
-    </div>
     <div id="touch-joystick" class="touch-joystick" aria-hidden="true">
       <div id="touch-joystick-thumb" class="touch-joystick__thumb"></div>
     </div>
+    <button id="touch-jump-button" class="touch-jump-button" type="button" aria-hidden="true" aria-label="Sauter">
+      Saut
+    </button>
     <div id="rotate-device-overlay" class="rotate-device-overlay" role="status" aria-live="polite">
       <div class="rotate-device-overlay__panel">
         <div class="rotate-device-overlay__icon" aria-hidden="true"></div>

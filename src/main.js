@@ -10,14 +10,12 @@ import { DesktopEnvironment } from './game/DesktopEnvironment.js';
 import { PlayerCursor } from './game/PlayerCursor.js';
 import { FragmentSystem } from './game/FragmentSystem.js';
 import { createHudView } from './game/HudView.js';
-import { TrashCanInterior } from './game/TrashCanInterior.js';
-import { Guard } from './game/Guard.js';
-import { triggerForceQuitEffect } from './game/ForceQuitEffect.js';
 import { GameProgress } from './game/GameProgress.js';
 import { RestorationCinematic } from './game/RestorationCinematic.js';
 import { createFinderWindow } from './game/FinderWindow.js';
 import { createStartScreen } from './game/StartScreen.js';
 import { createTouchJoystick } from './game/TouchJoystick.js';
+import { createTouchJumpButton } from './game/TouchJumpButton.js';
 
 const WORLD_SIZE = 70;
 const DEFAULT_FILE_NAME = 'page.html';
@@ -46,21 +44,12 @@ const NARROW_VIEWPORT_DISTANCE_BONUS = 2;
 
 const THEMES = { light: 'light', dark: 'dark' };
 
-const DESKTOP_GUARD_PATROL_RADIUS = 10;
-const DESKTOP_GUARD_WAYPOINT_COUNT = 8;
-const DESKTOP_GUARD_SPEED = 3;
-const DESKTOP_GUARD_CATCH_RADIUS = 2.6;
-// Two guard-free arcs and a mid-gap: [0, 0.10], [0.42, 0.55], [0.90, 1] of a full turn.
-const INTERIOR_GUARD_ARCS = [
-  [0.10, 0.42],
-  [0.55, 0.90],
-];
-const INTERIOR_GUARD_WAYPOINTS_PER_ARC = 4;
-const INTERIOR_GUARD_SPEED = 2.5;
-const INTERIOR_GUARD_CATCH_RADIUS = 2.2;
-const ZONE_ENTER_RADIUS = 5;
-const ZONE_REARM_RADIUS = ZONE_ENTER_RADIUS + 2;
-const ZONE_TRANSITION_COOLDOWN_MS = 1200;
+// How far below a gap's expected floor height the player must fall before
+// it counts as a missed jump (as opposed to still mid-air crossing it).
+const COURSE_FALL_TOLERANCE = 1.5;
+// Avoids re-triggering the reset teleport for a couple of frames while the
+// player is still settling at the course entry point.
+const COURSE_RESET_COOLDOWN_MS = 800;
 
 const KEY_TO_MOVE_AXIS = {
   KeyW: 'forward',
@@ -72,6 +61,7 @@ const KEY_TO_MOVE_AXIS = {
   KeyD: 'right',
   ArrowRight: 'right',
 };
+const JUMP_KEY_CODE = 'Space';
 
 const basis = DEFAULT_WORLD_BASIS;
 
@@ -100,34 +90,46 @@ async function createPhysicsWorld() {
 }
 
 function createKeyboardState() {
-  const keyboard = { forward: 0, backward: 0, left: 0, right: 0 };
+  const keyboard = { forward: 0, backward: 0, left: 0, right: 0, jump: 0 };
 
   function setAxis(code, value) {
     const axis = KEY_TO_MOVE_AXIS[code];
     if (axis) keyboard[axis] = value;
   }
 
-  window.addEventListener('keydown', (event) => setAxis(event.code, 1));
-  window.addEventListener('keyup', (event) => setAxis(event.code, 0));
+  window.addEventListener('keydown', (event) => {
+    setAxis(event.code, 1);
+    if (event.code === JUMP_KEY_CODE) {
+      keyboard.jump = 1;
+      // Prevent the page from scrolling on Space while the game is played.
+      event.preventDefault();
+    }
+  });
+  window.addEventListener('keyup', (event) => {
+    setAxis(event.code, 0);
+    if (event.code === JUMP_KEY_CODE) keyboard.jump = 0;
+  });
   window.addEventListener('blur', () => {
     keyboard.forward = 0;
     keyboard.backward = 0;
     keyboard.left = 0;
     keyboard.right = 0;
+    keyboard.jump = 0;
   });
 
   return keyboard;
 }
 
-// Combines the keyboard state with the mobile/tablet on-screen joystick's
-// axes (both share the same forward/backward/left/right shape) so either
-// input source alone is enough to move the cursor.
-function combineMoveInputs(keyboard, joystickAxes) {
+// Combines the keyboard state with the mobile/tablet on-screen joystick and
+// jump button (both share the same forward/backward/left/right/jump shape)
+// so either input source alone is enough to move and jump.
+function combineMoveInputs(keyboard, joystickAxes, touchJumpButton) {
   return {
     forward: Math.max(keyboard.forward, joystickAxes.forward),
     backward: Math.max(keyboard.backward, joystickAxes.backward),
     left: Math.max(keyboard.left, joystickAxes.left),
     right: Math.max(keyboard.right, joystickAxes.right),
+    jump: Math.max(keyboard.jump, touchJumpButton.pressed ? 1 : 0),
   };
 }
 
@@ -159,55 +161,6 @@ function getCameraRigOptions() {
   };
 }
 
-function buildCirclePatrol({ center, radius, count, angleOffset, floorUp, basis }) {
-  const waypoints = [];
-  for (let i = 0; i < count; i += 1) {
-    const angle = (i / count) * Math.PI * 2 + angleOffset;
-    waypoints.push(basis.fromBasisComponents(
-      center.right + radius * Math.cos(angle),
-      floorUp,
-      center.forward + radius * Math.sin(angle)
-    ));
-  }
-  return waypoints;
-}
-
-// Turns a one-way path into a closed loop that walks it forward then back,
-// so a plain closed-loop WaypointProgressTracker yields a back-and-forth patrol.
-function buildPingPongWaypoints(points) {
-  return [...points, ...points.slice(1, -1).reverse()];
-}
-
-function createDesktopGuards({ scene, environment, basis }) {
-  const center = environment.trashCanPlanar;
-  return [0, Math.PI].map((angleOffset) => new Guard({
-    scene,
-    basis,
-    maxSpeed: DESKTOP_GUARD_SPEED,
-    catchRadius: DESKTOP_GUARD_CATCH_RADIUS,
-    waypoints: buildCirclePatrol({
-      center,
-      radius: DESKTOP_GUARD_PATROL_RADIUS,
-      count: DESKTOP_GUARD_WAYPOINT_COUNT,
-      angleOffset,
-      floorUp: environment.floorUp,
-      basis,
-    }),
-  }));
-}
-
-function createInteriorGuards({ scene, trashCanInterior, basis }) {
-  return INTERIOR_GUARD_ARCS.map(([startRatio, endRatio]) => new Guard({
-    scene,
-    basis,
-    maxSpeed: INTERIOR_GUARD_SPEED,
-    catchRadius: INTERIOR_GUARD_CATCH_RADIUS,
-    waypoints: buildPingPongWaypoints(
-      trashCanInterior.getArcWaypoints(startRatio, endRatio, INTERIOR_GUARD_WAYPOINTS_PER_ARC)
-    ),
-  }));
-}
-
 function pointerEventToNdc(event, canvas) {
   const rect = canvas.getBoundingClientRect();
   return {
@@ -216,103 +169,86 @@ function pointerEventToNdc(event, canvas) {
   };
 }
 
-// Guards the Trash Can: 2 patrol its desktop entry ring, 2 patrol the spiral
-// inside. Contact sends the player back to the main spawn (Force Quit effect,
-// no fragment loss); walking onto the entry ring/spiral top transitions zones.
-function createTrashCanChallenge({ scene, environment, playerCursor, playerSpawn, basis }) {
-  const trashCanInterior = new TrashCanInterior({
-    scene,
-    trashCanPlanar: environment.trashCanPlanar,
-    floorUp: environment.floorUp,
-    basis,
-  });
-  trashCanInterior.create();
-
-  const desktopGuards = createDesktopGuards({ scene, environment, basis });
-  const interiorGuards = createInteriorGuards({ scene, trashCanInterior, basis });
-
-  let zone = 'desktop';
-  let lastTransitionAtMs = -Infinity;
+// Watches all 3 of the desktop's jump courses (built in DesktopEnvironment,
+// in the continuity of the world - no separate scene, no teleport to get
+// there): a missed jump is the player sunk well below a gap's expected floor
+// height while still over it, which sends them back to that course's own
+// entry point. No fragment loss, matching the project's "never frustrating"
+// philosophy.
+function createCourseFallRecovery({ environment, playerCursor, basis }) {
+  const checkpoints = environment.getAllCourseFallCheckpoints();
+  let lastResetAtMs = -Infinity;
   let pendingCameraSnap = false;
-  // A transition disarms itself until the player walks away from where it
-  // just dropped them - otherwise standing still on the entry/exit point
-  // would flip zones again as soon as the cooldown below expires.
-  let transitionArmed = true;
-  let lastDestination = null;
 
-  function inCooldown(nowMs) {
-    return nowMs - lastTransitionAtMs < ZONE_TRANSITION_COOLDOWN_MS;
-  }
+  function checkFallThrough(nowMs) {
+    if (nowMs - lastResetAtMs < COURSE_RESET_COOLDOWN_MS) return;
 
-  function transitionTo(nextZone, destination, nowMs) {
-    playerCursor.teleportTo(destination);
-    zone = nextZone;
-    lastTransitionAtMs = nowMs;
-    pendingCameraSnap = true;
-    transitionArmed = false;
-    lastDestination = destination.clone();
-  }
-
-  function updateArming() {
-    if (transitionArmed || !lastDestination) return;
-    if (playerCursor.position.distanceTo(lastDestination) > ZONE_REARM_RADIUS) transitionArmed = true;
-  }
-
-  function checkZoneTransition(nowMs) {
-    if (!transitionArmed || inCooldown(nowMs)) return;
-
-    if (zone === 'desktop') {
-      const playerPlanar = basis.toPlanar(playerCursor.position);
-      const distance = Math.hypot(
-        playerPlanar.right - trashCanInterior.center.right,
-        playerPlanar.forward - trashCanInterior.center.forward
-      );
-      if (distance <= ZONE_ENTER_RADIUS) transitionTo('interior', trashCanInterior.getEntryPoint(), nowMs);
-    } else {
-      const distance = playerCursor.position.distanceTo(trashCanInterior.getEntryPoint());
-      if (distance <= ZONE_ENTER_RADIUS) transitionTo('desktop', environment.trashCanPosition, nowMs);
-    }
-  }
-
-  function checkGuardContact(nowMs) {
-    if (inCooldown(nowMs)) return;
-
-    const activeGuards = zone === 'desktop' ? desktopGuards : interiorGuards;
-    const catchRadius = zone === 'desktop' ? DESKTOP_GUARD_CATCH_RADIUS : INTERIOR_GUARD_CATCH_RADIUS;
     const playerPosition = playerCursor.position;
+    for (const checkpoint of checkpoints) {
+      const distanceSq = basis.distanceSqPlanar(playerPosition, checkpoint.position);
+      if (distanceSq > checkpoint.captureRadius * checkpoint.captureRadius) continue;
 
-    for (const guard of activeGuards) {
-      const distanceSq = basis.distanceSqPlanar(playerPosition, guard.position);
-      if (distanceSq <= catchRadius * catchRadius) {
-        triggerForceQuitEffect();
-        transitionTo('desktop', playerSpawn, nowMs);
+      const heightBelowFloor = basis.upComponent(checkpoint.position) - basis.upComponent(playerPosition);
+      if (heightBelowFloor >= COURSE_FALL_TOLERANCE) {
+        playerCursor.teleportTo(checkpoint.entryPoint);
+        lastResetAtMs = nowMs;
+        pendingCameraSnap = true;
         break;
       }
     }
   }
 
   return {
-    trashCanInterior,
-
-    createPhysicsColliders(world, rapier) {
-      trashCanInterior.createPhysicsColliders(world, rapier);
-    },
-
     consumeCameraSnap() {
       const shouldSnap = pendingCameraSnap;
       pendingCameraSnap = false;
       return shouldSnap;
     },
 
-    update(deltaSeconds, nowMs) {
-      for (const guard of desktopGuards) guard.update(deltaSeconds, desktopGuards);
-      for (const guard of interiorGuards) guard.update(deltaSeconds, interiorGuards);
-
-      updateArming();
-      checkZoneTransition(nowMs);
-      checkGuardContact(nowMs);
+    update(nowMs) {
+      checkFallThrough(nowMs);
     },
   };
+}
+
+// Rapier's kinematic character controller doesn't carry a character along a
+// moving platform automatically (see JumpCourse.js). Each frame, before the
+// player's own movement is resolved: if they were standing on a moving
+// platform's footprint as of the *previous* frame (one-frame lag, ~16ms at
+// 60fps, imperceptible), nudge them by that platform's delta this frame.
+function createMovingPlatformRider({ environment, playerCursor, basis }) {
+  let wasGrounded = false;
+
+  function applyCarry() {
+    if (!wasGrounded) return;
+
+    const playerPlanar = basis.toPlanar(playerCursor.position);
+    const playerHeight = basis.upComponent(playerCursor.position);
+
+    for (const platform of environment.getAllMovingPlatforms()) {
+      const { previousFootprintCenter, direction, alongHalf, acrossHalf, topHeight } = platform;
+      const deltaRight = playerPlanar.right - previousFootprintCenter.right;
+      const deltaForward = playerPlanar.forward - previousFootprintCenter.forward;
+      // Project onto the platform's own along/across axes (it's rotated to
+      // face `direction`, not necessarily aligned with the raw right/forward
+      // world axes) rather than a naive axis-aligned box check.
+      const along = deltaRight * direction.right + deltaForward * direction.forward;
+      const across = deltaRight * -direction.forward + deltaForward * direction.right;
+      const withinFootprint = Math.abs(along) <= alongHalf && Math.abs(across) <= acrossHalf;
+      const onTop = Math.abs(playerHeight - topHeight) <= 0.3;
+
+      if (withinFootprint && onTop) {
+        playerCursor.nudge(platform.delta);
+        break;
+      }
+    }
+  }
+
+  function noteGroundedState(grounded) {
+    wasGrounded = grounded;
+  }
+
+  return { applyCarry, noteGroundedState };
 }
 
 function setupClickToMove({ canvas, camera, playerCursor, environment, scene, basis }) {
@@ -355,7 +291,8 @@ function start({
   playerCursor,
   environment,
   fragmentSystem,
-  trashCanChallenge,
+  courseFallRecovery,
+  movingPlatformRider,
   cinematic,
   isGameEnded,
 }) {
@@ -365,6 +302,7 @@ function start({
 
   const keyboard = createKeyboardState();
   const touchJoystick = createTouchJoystick();
+  const touchJumpButton = createTouchJumpButton();
   const cameraRig = new PositionFollowCameraRig({ ...getCameraRigOptions(), basis });
   const clickToMove = setupClickToMove({
     canvas: renderer.domElement,
@@ -399,20 +337,26 @@ function start({
     previousSeconds = nowSeconds;
 
     // Once the last fragment is restored, freeze normal gameplay (movement,
-    // guards, click-to-move) and let only the restoration cinematic play.
+    // jump courses, click-to-move) and let only the restoration cinematic play.
     if (!isGameEnded()) {
-      const moveInput = combineMoveInputs(keyboard, touchJoystick.axes);
-      playerCursor.update({ deltaSeconds, keyboard: moveInput });
-      trashCanChallenge.update(deltaSeconds, performance.now());
-      // Read the position fresh: trashCanChallenge.update() may have just
-      // teleported the player (zone transition or Force Quit).
+      // Advance moving platforms and carry the player along before resolving
+      // this frame's own movement (see createMovingPlatformRider).
+      environment.update(deltaSeconds);
+      movingPlatformRider.applyCarry();
+
+      const moveInput = combineMoveInputs(keyboard, touchJoystick.axes, touchJumpButton);
+      const snapshot = playerCursor.update({ deltaSeconds, keyboard: moveInput });
+      movingPlatformRider.noteGroundedState(snapshot.grounded);
+      courseFallRecovery.update(performance.now());
+      // Read the position fresh: courseFallRecovery.update() may have just
+      // teleported the player back to a course entry after a missed jump.
       const playerPosition = playerCursor.position;
 
       cameraRig.step({
         targetPosition: playerPosition,
         deltaSeconds,
         camera,
-        snapToTarget: firstFrame || trashCanChallenge.consumeCameraSnap(),
+        snapToTarget: firstFrame || courseFallRecovery.consumeCameraSnap(),
       });
       firstFrame = false;
 
@@ -465,15 +409,19 @@ const playerCursor = new PlayerCursor({
   cameraAzimuth: CAMERA_RIG_OPTIONS.azimuth,
 });
 
-const trashCanChallenge = createTrashCanChallenge({ scene, environment, playerCursor, playerSpawn, basis });
-trashCanChallenge.createPhysicsColliders(physicsWorld, RAPIER);
+const courseFallRecovery = createCourseFallRecovery({ environment, playerCursor, basis });
+const movingPlatformRider = createMovingPlatformRider({ environment, playerCursor, basis });
 
 const fragmentSystem = new FragmentSystem({
   scene,
   environment,
   basis,
   playerSpawnPosition: playerSpawn,
-  finalFragmentPosition: trashCanChallenge.trashCanInterior.getFragmentPosition(),
+  finalFragmentPosition: environment.getCourseFragmentPosition('easy'),
+  relocatedFragmentPositions: [
+    environment.getCourseFragmentPosition('medium'),
+    environment.getCourseFragmentPosition('hard'),
+  ],
   fileName: getRequestedFileName(),
 });
 createHudView({
@@ -511,7 +459,8 @@ createStartScreen({
       playerCursor,
       environment,
       fragmentSystem,
-      trashCanChallenge,
+      courseFallRecovery,
+      movingPlatformRider,
       cinematic,
       isGameEnded: () => gameEnded,
     });
