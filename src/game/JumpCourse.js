@@ -38,6 +38,18 @@ function buildRoundedPlatformGeometry(width, forwardSpan, depth, cornerRadius) {
   return geometry;
 }
 
+// Rotates a local (right, forward) offset by a yaw around the up axis - same
+// technique as DesktopEnvironment.js's rotatePlanarOffsetByYaw, used here to
+// place the course-end folder's tab collider in world space.
+function rotatePlanarOffsetByYaw(localRight, localForward, yaw) {
+  const cos = Math.cos(yaw);
+  const sin = Math.sin(yaw);
+  return {
+    right: localRight * cos - localForward * sin,
+    forward: localRight * sin + localForward * cos,
+  };
+}
+
 // A jump-platforming course: a handful of stepping platforms (some static,
 // some sliding back and forth) at increasing height along a fixed direction,
 // ending on a folder (built via the injected `createFolderMesh`, standing
@@ -55,6 +67,8 @@ export class JumpCourse {
     objectRotation,
     createFolderMesh,
     folderBodySize,
+    folderTabSize,
+    folderTabLocalOffset,
     direction,
     entryDistance,
     platformSize,
@@ -68,6 +82,8 @@ export class JumpCourse {
     this.objectRotation = objectRotation;
     this.createFolderMesh = createFolderMesh;
     this.folderBodySize = folderBodySize;
+    this.folderTabSize = folderTabSize;
+    this.folderTabLocalOffset = folderTabLocalOffset;
     this.direction = direction;
     this.platformSize = platformSize;
     this.keepoutRadius = keepoutRadius;
@@ -310,6 +326,23 @@ export class JumpCourse {
       spanForward: this.folderBodySize.forward,
     };
     this.physicsColliders.push(this.createStaticCuboidCollider(folderBox, this._rotation(this.yaw), PLATFORM_COLLIDER_FRICTION));
+
+    // The tab sits above the body's own roof and previously had no collider
+    // of its own (see DesktopEnvironment.js's matching fix for desktop folders).
+    const tabWorldOffset = rotatePlanarOffsetByYaw(
+      this.folderTabLocalOffset.right,
+      this.folderTabLocalOffset.forward,
+      this.yaw
+    );
+    const tabBox = {
+      right: this.folderPlanar.right + tabWorldOffset.right,
+      up: this.floorUp + this.folderTabLocalOffset.up,
+      forward: this.folderPlanar.forward + tabWorldOffset.forward,
+      spanRight: this.folderTabSize.right,
+      spanUp: this.folderTabSize.up,
+      spanForward: this.folderTabSize.forward,
+    };
+    this.physicsColliders.push(this.createStaticCuboidCollider(tabBox, this._rotation(this.yaw), PLATFORM_COLLIDER_FRICTION));
 
     return this.physicsColliders;
   }

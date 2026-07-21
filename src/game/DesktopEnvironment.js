@@ -23,6 +23,27 @@ const FOLDER_TAB_SIZE = Object.freeze({ right: 1.85, up: 0.66, forward: 1.6 });
 // visually consistent with the mesh.
 const FOLDER_BODY_CORNER_RADIUS = 0.55;
 const FOLDER_TAB_CORNER_RADIUS = 0.35;
+const FOLDER_BEVEL_THICKNESS = 0.08;
+// Tab position relative to the folder body's own center (right/up/forward,
+// pre-yaw-rotation) - shared by the mesh (createFolderMesh) and the tab's
+// own Rapier collider (createPhysicsColliders) so they never drift apart.
+const FOLDER_TAB_LOCAL_OFFSET = Object.freeze({
+  right: -(FOLDER_BODY_SIZE.right * 0.5 - FOLDER_TAB_SIZE.right * 0.5),
+  up: FOLDER_BODY_SIZE.up + FOLDER_TAB_SIZE.up * 0.5,
+  forward: -(FOLDER_BODY_SIZE.forward * 0.5 - FOLDER_TAB_SIZE.forward * 0.5),
+});
+
+// Rotates a local (right, forward) offset by a yaw around the up axis -
+// used to place a folder's tab collider in world space, matching however
+// the folder itself (body + tab mesh) is rotated.
+function rotatePlanarOffsetByYaw(localRight, localForward, yaw) {
+  const cos = Math.cos(yaw);
+  const sin = Math.sin(yaw);
+  return {
+    right: localRight * cos - localForward * sin,
+    forward: localRight * sin + localForward * cos,
+  };
+}
 const FOLDER_GRID_SPACING = 13;
 const FOLDER_GRID_RADIUS_CELLS = 2;
 const FOLDER_JITTER = 3;
@@ -138,19 +159,27 @@ function buildRoundedBoxGeometry(size, cornerRadius) {
   shape.absarc(-halfW + cornerRadius, -halfF + cornerRadius, cornerRadius, Math.PI, Math.PI * 1.5, false);
   shape.closePath();
 
+  // ExtrudeGeometry's bevel extends bevelThickness *beyond* the given depth
+  // at both ends (not inset into it), so the extrude depth is shrunk by
+  // 2*bevelThickness up front - with that compensation, the beveled result's
+  // total height is exactly `size.up`, keeping the "rounding is an inset,
+  // never a protrusion" guarantee from the comment above (otherwise the
+  // mesh would stick out ~bevelThickness past the Rapier cuboid collider on
+  // both the roof and the underside).
   const geometry = new THREE.ExtrudeGeometry(shape, {
-    depth: size.up,
+    depth: size.up - FOLDER_BEVEL_THICKNESS * 2,
     bevelEnabled: true,
-    bevelThickness: 0.08,
-    bevelSize: 0.08,
+    bevelThickness: FOLDER_BEVEL_THICKNESS,
+    bevelSize: FOLDER_BEVEL_THICKNESS,
     bevelSegments: 2,
     curveSegments: 6,
   });
   geometry.rotateX(-Math.PI / 2);
-  // ExtrudeGeometry spans [0, depth] along the post-rotation Y axis;
-  // recenter to [-depth/2, depth/2] to match BoxGeometry's centered origin
+  // Post-rotation, post-bevel the geometry spans
+  // [-bevelThickness, depth-bevelThickness] along Y; recenter to
+  // [-size.up/2, size.up/2] to match BoxGeometry's centered origin
   // (createFolderMesh positions these by their center, same as before).
-  geometry.translate(0, -size.up * 0.5, 0);
+  geometry.translate(0, FOLDER_BEVEL_THICKNESS - size.up * 0.5, 0);
   return geometry;
 }
 
@@ -281,6 +310,8 @@ export class DesktopEnvironment {
         objectRotation: this.objectRotation,
         createFolderMesh: () => this.createFolderMesh(),
         folderBodySize: FOLDER_BODY_SIZE,
+        folderTabSize: FOLDER_TAB_SIZE,
+        folderTabLocalOffset: FOLDER_TAB_LOCAL_OFFSET,
         fallCaptureRadius: COURSE_FALL_CAPTURE_RADIUS,
         keepoutRadius: COURSE_KEEPOUT_RADIUS,
         ...config,
@@ -379,9 +410,9 @@ export class DesktopEnvironment {
 
     const tab = new THREE.Mesh(folderTabGeometry, folderTabMaterial);
     tab.position.copy(this.basis.fromBasisComponents(
-      -(FOLDER_BODY_SIZE.right * 0.5 - FOLDER_TAB_SIZE.right * 0.5),
-      FOLDER_BODY_SIZE.up + FOLDER_TAB_SIZE.up * 0.5,
-      -(FOLDER_BODY_SIZE.forward * 0.5 - FOLDER_TAB_SIZE.forward * 0.5)
+      FOLDER_TAB_LOCAL_OFFSET.right,
+      FOLDER_TAB_LOCAL_OFFSET.up,
+      FOLDER_TAB_LOCAL_OFFSET.forward
     ));
     tab.castShadow = true;
     group.add(tab);
@@ -542,6 +573,26 @@ export class DesktopEnvironment {
       };
       this.physicsColliders.push(
         this.createStaticCuboidCollider(folderBox, this.folderRotation(folder.yaw), FOLDER_COLLIDER_FRICTION)
+      );
+
+      // The tab sits above the body's own roof (see FOLDER_TAB_LOCAL_OFFSET)
+      // and previously had no collider of its own, letting the player fall
+      // through that corner instead of standing on it.
+      const tabWorldOffset = rotatePlanarOffsetByYaw(
+        FOLDER_TAB_LOCAL_OFFSET.right,
+        FOLDER_TAB_LOCAL_OFFSET.forward,
+        folder.yaw
+      );
+      const tabBox = {
+        right: folder.right + tabWorldOffset.right,
+        up: this.floorUp + FOLDER_TAB_LOCAL_OFFSET.up,
+        forward: folder.forward + tabWorldOffset.forward,
+        spanRight: FOLDER_TAB_SIZE.right,
+        spanUp: FOLDER_TAB_SIZE.up,
+        spanForward: FOLDER_TAB_SIZE.forward,
+      };
+      this.physicsColliders.push(
+        this.createStaticCuboidCollider(tabBox, this.folderRotation(folder.yaw), FOLDER_COLLIDER_FRICTION)
       );
     }
 
