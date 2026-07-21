@@ -39,10 +39,23 @@ function renderToasts(container, items) {
     if (existingIds.has(id)) continue;
 
     const toast = document.createElement('div');
-    toast.className = 'toast';
+    toast.className = `toast toast--${item.type}`;
     toast.dataset.toastId = id;
     toast.textContent = item.content;
     container.appendChild(toast);
+  }
+}
+
+// Briefly pulses the given HUD pills so a fragment pickup draws the eye,
+// even on elements (the Finder path bar) whose text doesn't always change
+// visibly on every pickup (e.g. between two folder-segment reveals).
+function triggerCollectPulse(documentRef, selectors) {
+  for (const selector of selectors) {
+    const element = documentRef.querySelector(selector);
+    if (!element) continue;
+    element.classList.remove('is-pulsing');
+    void element.offsetWidth; // force reflow so the animation restarts if still running
+    element.classList.add('is-pulsing');
   }
 }
 
@@ -54,6 +67,12 @@ export function createHudView({ uiState, notifications, fileName, documentRef = 
   hudRenderer.bindText('#fragment-counter', 'collectedCount', formatFragmentCounter);
   hudRenderer.attach();
   hudRenderer.render(uiState.getState());
+
+  uiState.subscribe((state, changedKeys) => {
+    if (changedKeys.includes('collectedCount')) {
+      triggerCollectPulse(documentRef, ['#finder-path', '#fragment-counter']);
+    }
+  });
 
   const toastContainer = documentRef.getElementById('toast-container');
   notifications.subscribe((visible) => renderToasts(toastContainer, visible), true);

@@ -4,7 +4,7 @@ import { DEFAULT_PRNG } from '../modules/math/RandomUtils.js';
 import { disposeObject3D } from '../modules/world/Object3DUtils.js';
 import { createWorldBoundsColliders } from '../modules/world/environment/WorldBoundsColliderFactory.js';
 import { SpawnAreaSampler, SPAWN_REGION_TYPES } from '../modules/world/environment/SpawnAreaSampler.js';
-import { FOLDER_BLUE } from './Palette.js';
+import { FOLDER_FRONT_BLUE, FOLDER_BACK_BLUE } from './Palette.js';
 import { createContactShadow } from './ContactShadow.js';
 import { JumpCourse } from './JumpCourse.js';
 
@@ -14,11 +14,15 @@ import { JumpCourse } from './JumpCourse.js';
 // touching this class.
 const PLACEHOLDER_GROUND_COLOR = 0x8fadd1;
 const PLACEHOLDER_SKY_COLOR = 0xc7d7ea;
-const FOLDER_COLOR = FOLDER_BLUE;
 const FOLDER_SHADOW_RADIUS = 3.2;
 
 const FOLDER_BODY_SIZE = Object.freeze({ right: 4.4, up: 3.0, forward: 3.2 });
 const FOLDER_TAB_SIZE = Object.freeze({ right: 1.85, up: 0.66, forward: 1.6 });
+// Rounding is an inset of the existing box footprint, never a protrusion, so
+// the unchanged cuboid Rapier colliders in createPhysicsColliders() stay
+// visually consistent with the mesh.
+const FOLDER_BODY_CORNER_RADIUS = 0.55;
+const FOLDER_TAB_CORNER_RADIUS = 0.35;
 const FOLDER_GRID_SPACING = 13;
 const FOLDER_GRID_RADIUS_CELLS = 2;
 const FOLDER_JITTER = 3;
@@ -99,6 +103,7 @@ const THEME_PALETTES = {
   light: {
     skyColor: PLACEHOLDER_SKY_COLOR,
     groundColor: PLACEHOLDER_GROUND_COLOR,
+    groundColorCenter: 0xa8c6e8,
     ambientIntensity: 0.65,
     directionalColor: 0xfff3e0,
     directionalIntensity: 1.15,
@@ -106,29 +111,121 @@ const THEME_PALETTES = {
   dark: {
     skyColor: 0x1c2230,
     groundColor: 0x3a4152,
+    groundColorCenter: 0x4a5468,
     ambientIntensity: 0.42,
     directionalColor: 0xdce6ff,
     directionalIntensity: 0.85,
   },
 };
 
-const folderBodyGeometry = new THREE.BoxGeometry(
-  FOLDER_BODY_SIZE.right,
-  FOLDER_BODY_SIZE.up,
-  FOLDER_BODY_SIZE.forward
-);
-const folderTabGeometry = new THREE.BoxGeometry(
-  FOLDER_TAB_SIZE.right,
-  FOLDER_TAB_SIZE.up,
-  FOLDER_TAB_SIZE.forward
-);
-// Folders are visually identical low-poly buildings: one shared material for
-// every instance instead of one per folder.
-const folderMaterial = new THREE.MeshStandardMaterial({
-  color: FOLDER_COLOR,
-  roughness: 0.75,
+// A rounded-rect footprint extruded to `size.up`, following the same
+// THREE.Shape -> ExtrudeGeometry technique as CursorMesh.js/FileIconMesh.js.
+// The shape's bounding box always equals `size.right x size.forward` (the
+// rounding is an inset, via absarc corners, never a protrusion), so it stays
+// a strict subset of the unchanged cuboid collider volume.
+function buildRoundedBoxGeometry(size, cornerRadius) {
+  const halfW = size.right * 0.5;
+  const halfF = size.forward * 0.5;
+  const shape = new THREE.Shape();
+  shape.moveTo(-halfW + cornerRadius, -halfF);
+  shape.lineTo(halfW - cornerRadius, -halfF);
+  shape.absarc(halfW - cornerRadius, -halfF + cornerRadius, cornerRadius, -Math.PI / 2, 0, false);
+  shape.lineTo(halfW, halfF - cornerRadius);
+  shape.absarc(halfW - cornerRadius, halfF - cornerRadius, cornerRadius, 0, Math.PI / 2, false);
+  shape.lineTo(-halfW + cornerRadius, halfF);
+  shape.absarc(-halfW + cornerRadius, halfF - cornerRadius, cornerRadius, Math.PI / 2, Math.PI, false);
+  shape.lineTo(-halfW, -halfF + cornerRadius);
+  shape.absarc(-halfW + cornerRadius, -halfF + cornerRadius, cornerRadius, Math.PI, Math.PI * 1.5, false);
+  shape.closePath();
+
+  const geometry = new THREE.ExtrudeGeometry(shape, {
+    depth: size.up,
+    bevelEnabled: true,
+    bevelThickness: 0.08,
+    bevelSize: 0.08,
+    bevelSegments: 2,
+    curveSegments: 6,
+  });
+  geometry.rotateX(-Math.PI / 2);
+  // ExtrudeGeometry spans [0, depth] along the post-rotation Y axis;
+  // recenter to [-depth/2, depth/2] to match BoxGeometry's centered origin
+  // (createFolderMesh positions these by their center, same as before).
+  geometry.translate(0, -size.up * 0.5, 0);
+  return geometry;
+}
+
+// Diagonal light-to-dark gradient across the folder body, approximating a
+// real Big Sur folder icon's sheen. Driven by vertex position (not a UV
+// texture): ExtrudeGeometry's default UV generator emits raw, unnormalized
+// shape-space coordinates for both cap and side-wall faces (see three.js's
+// WorldUVGenerator), which would clamp a texture to a near-solid edge color
+// rather than spanning it - per-vertex color sidesteps that entirely and
+// reads consistently across every face.
+function applyDiagonalGradientVertexColors(geometry, colorFromHex, colorToHex) {
+  geometry.computeBoundingBox();
+  const { min, max } = geometry.boundingBox;
+  const spanX = max.x - min.x || 1;
+  const spanY = max.y - min.y || 1;
+  const colorFrom = new THREE.Color(colorFromHex);
+  const colorTo = new THREE.Color(colorToHex);
+
+  const position = geometry.attributes.position;
+  const colors = new Float32Array(position.count * 3);
+  const blended = new THREE.Color();
+  for (let i = 0; i < position.count; i += 1) {
+    const normalizedX = (position.getX(i) - min.x) / spanX;
+    const normalizedY = (position.getY(i) - min.y) / spanY;
+    blended.copy(colorFrom).lerp(colorTo, (normalizedX + normalizedY) * 0.5);
+    colors[i * 3] = blended.r;
+    colors[i * 3 + 1] = blended.g;
+    colors[i * 3 + 2] = blended.b;
+  }
+  geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+}
+
+const GROUND_TEXTURE_SIZE = 512;
+const groundTextureCache = new Map();
+// Procedural radial-gradient ground texture (center -> edge), reused until a
+// real wallpaper asset exists (see wallpaperTexture). The edge stop reuses
+// the theme's own groundColor/skyColor tone so the gradient blends into the
+// existing fog instead of creating a seam. Cached per theme's color pair.
+function getGroundTexture(centerColorHex, edgeColorHex) {
+  const key = `${centerColorHex}:${edgeColorHex}`;
+  const cached = groundTextureCache.get(key);
+  if (cached) return cached;
+
+  const canvas = document.createElement('canvas');
+  canvas.width = GROUND_TEXTURE_SIZE;
+  canvas.height = GROUND_TEXTURE_SIZE;
+  const context = canvas.getContext('2d');
+  const center = GROUND_TEXTURE_SIZE * 0.5;
+  const gradient = context.createRadialGradient(center, center, 0, center, center, center);
+  gradient.addColorStop(0, `#${centerColorHex.toString(16).padStart(6, '0')}`);
+  gradient.addColorStop(1, `#${edgeColorHex.toString(16).padStart(6, '0')}`);
+  context.fillStyle = gradient;
+  context.fillRect(0, 0, GROUND_TEXTURE_SIZE, GROUND_TEXTURE_SIZE);
+
+  const texture = new THREE.CanvasTexture(canvas);
+  groundTextureCache.set(key, texture);
+  return texture;
+}
+
+const folderBodyGeometry = buildRoundedBoxGeometry(FOLDER_BODY_SIZE, FOLDER_BODY_CORNER_RADIUS);
+applyDiagonalGradientVertexColors(folderBodyGeometry, FOLDER_FRONT_BLUE, FOLDER_BACK_BLUE);
+const folderTabGeometry = buildRoundedBoxGeometry(FOLDER_TAB_SIZE, FOLDER_TAB_CORNER_RADIUS);
+// Folders are visually identical buildings: shared materials for every
+// instance instead of one per folder. Two-tone: gradient-colored front
+// body, flat darker tab reading as the flap behind it.
+const folderBodyMaterial = new THREE.MeshStandardMaterial({
+  vertexColors: true,
+  color: 0xffffff,
+  roughness: 0.55,
   metalness: 0.05,
-  flatShading: true,
+});
+const folderTabMaterial = new THREE.MeshStandardMaterial({
+  color: FOLDER_BACK_BLUE,
+  roughness: 0.7,
+  metalness: 0.05,
 });
 
 function buildFolderGridCells(worldSize, prng, courseKeepoutPoints) {
@@ -249,8 +346,8 @@ export class DesktopEnvironment {
 
   createGround() {
     const material = new THREE.MeshStandardMaterial({
-      color: this.wallpaperTexture ? 0xffffff : this.palette.groundColor,
-      map: this.wallpaperTexture,
+      color: 0xffffff,
+      map: this.wallpaperTexture ?? getGroundTexture(this.palette.groundColorCenter, this.palette.groundColor),
       roughness: 1,
       metalness: 0,
     });
@@ -274,13 +371,13 @@ export class DesktopEnvironment {
   createFolderMesh() {
     const group = new THREE.Group();
 
-    const body = new THREE.Mesh(folderBodyGeometry, folderMaterial);
+    const body = new THREE.Mesh(folderBodyGeometry, folderBodyMaterial);
     body.position.copy(this.basis.fromBasisComponents(0, FOLDER_BODY_SIZE.up * 0.5, 0));
     body.castShadow = true;
     body.receiveShadow = true;
     group.add(body);
 
-    const tab = new THREE.Mesh(folderTabGeometry, folderMaterial);
+    const tab = new THREE.Mesh(folderTabGeometry, folderTabMaterial);
     tab.position.copy(this.basis.fromBasisComponents(
       -(FOLDER_BODY_SIZE.right * 0.5 - FOLDER_TAB_SIZE.right * 0.5),
       FOLDER_BODY_SIZE.up + FOLDER_TAB_SIZE.up * 0.5,

@@ -39,7 +39,10 @@ function buildArrowShape(scale) {
 function buildArrowGeometry(scale, depth, verticalOffset = 0) {
   const geometry = new THREE.ExtrudeGeometry(buildArrowShape(scale), {
     depth,
-    bevelEnabled: false,
+    bevelEnabled: true,
+    bevelThickness: 0.05,
+    bevelSize: 0.04,
+    bevelSegments: 2,
     curveSegments: 1,
   });
   geometry.rotateX(-Math.PI / 2);
@@ -51,7 +54,7 @@ export function createCursorModel(basis = DEFAULT_WORLD_BASIS) {
   const fillGeometry = buildArrowGeometry(CURSOR_SCALE, CURSOR_THICKNESS);
   const fillMaterial = new THREE.MeshStandardMaterial({
     color: FILL_COLOR,
-    roughness: 0.35,
+    roughness: 0.28,
     metalness: 0.1,
   });
   const fillMesh = new THREE.Mesh(fillGeometry, fillMaterial);
@@ -64,7 +67,7 @@ export function createCursorModel(basis = DEFAULT_WORLD_BASIS) {
   );
   const outlineMaterial = new THREE.MeshStandardMaterial({
     color: OUTLINE_COLOR,
-    roughness: 0.6,
+    roughness: 0.5,
     metalness: 0,
   });
   const outlineMesh = new THREE.Mesh(outlineGeometry, outlineMaterial);

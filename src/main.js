@@ -1,11 +1,12 @@
 import RAPIER from '@dimforge/rapier3d-compat';
-import { PCFSoftShadowMap, PerspectiveCamera, Scene, WebGLRenderer } from 'three';
+import { ACESFilmicToneMapping, PCFSoftShadowMap, PerspectiveCamera, Scene, WebGLRenderer } from 'three';
 import { DEFAULT_WORLD_BASIS } from './modules/math/WorldBasis.js';
 import { Clock } from './modules/math/TimeUtils.js';
 import { clamp } from './modules/math/ScalarUtils.js';
 import { PositionFollowCameraRig } from './modules/camera/PositionFollowCameraRig.js';
 import { AimResolver } from './modules/gameplay/AimResolver.js';
 import { GroundClickIndicator } from './modules/world/visual-effects/GroundClickIndicator.js';
+import { ACCENT_BLUE, ACCENT_BLUE_SOFT } from './game/Palette.js';
 import { DesktopEnvironment } from './game/DesktopEnvironment.js';
 import { PlayerCursor } from './game/PlayerCursor.js';
 import { FragmentSystem } from './game/FragmentSystem.js';
@@ -71,6 +72,8 @@ function createRenderer(canvas) {
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, MAX_PIXEL_RATIO));
   renderer.shadowMap.enabled = true;
   renderer.shadowMap.type = PCFSoftShadowMap;
+  renderer.toneMapping = ACESFilmicToneMapping;
+  renderer.toneMappingExposure = 1.0;
   return renderer;
 }
 
@@ -266,7 +269,12 @@ function setupClickToMove({ canvas, camera, playerCursor, environment, scene, ba
     if (!aim.hasHit) return;
 
     playerCursor.setMoveTarget(aim.hitPosition);
-    const indicator = new GroundClickIndicator({ position: aim.hitPosition, basis });
+    const indicator = new GroundClickIndicator({
+      position: aim.hitPosition,
+      basis,
+      color: ACCENT_BLUE,
+      accentColor: ACCENT_BLUE_SOFT,
+    });
     scene.add(indicator.group);
     clickIndicators.push(indicator);
   });

@@ -1,11 +1,42 @@
 import * as THREE from 'three';
-import { TRASH_GRAY } from './Palette.js';
+import { SURFACE_GRAY } from './Palette.js';
 import { createContactShadow } from './ContactShadow.js';
 import { disposeObject3D } from '../modules/world/Object3DUtils.js';
 
-const PLATFORM_COLOR = TRASH_GRAY;
+const PLATFORM_COLOR = SURFACE_GRAY;
 const PLATFORM_COLLIDER_FRICTION = 0.9;
 const CONTACT_SHADOW_RADIUS = 3.2;
+// Small radius: the narrowest course's platforms are only 2.5x1.6, a bigger
+// rounding would read as a coin/puck rather than a stepping platform.
+const PLATFORM_CORNER_RADIUS = 0.25;
+
+// Rounded-rect footprint, flat top/bottom (no bevel - unlike the folder mesh,
+// a moving platform's Rapier collider is sized exactly to `platformSize` and
+// isn't visually decoupled from the mesh, so depth must stay exactly
+// `depth`; only the horizontal corners are cosmetic).
+function buildRoundedPlatformGeometry(width, forwardSpan, depth, cornerRadius) {
+  const halfW = width * 0.5;
+  const halfF = forwardSpan * 0.5;
+  const shape = new THREE.Shape();
+  shape.moveTo(-halfW + cornerRadius, -halfF);
+  shape.lineTo(halfW - cornerRadius, -halfF);
+  shape.absarc(halfW - cornerRadius, -halfF + cornerRadius, cornerRadius, -Math.PI / 2, 0, false);
+  shape.lineTo(halfW, halfF - cornerRadius);
+  shape.absarc(halfW - cornerRadius, halfF - cornerRadius, cornerRadius, 0, Math.PI / 2, false);
+  shape.lineTo(-halfW + cornerRadius, halfF);
+  shape.absarc(-halfW + cornerRadius, halfF - cornerRadius, cornerRadius, Math.PI / 2, Math.PI, false);
+  shape.lineTo(-halfW, -halfF + cornerRadius);
+  shape.absarc(-halfW + cornerRadius, -halfF + cornerRadius, cornerRadius, Math.PI, Math.PI * 1.5, false);
+  shape.closePath();
+
+  const geometry = new THREE.ExtrudeGeometry(shape, { depth, bevelEnabled: false, curveSegments: 4 });
+  geometry.rotateX(-Math.PI / 2);
+  // ExtrudeGeometry spans [0, depth] along the post-rotation Y axis; recenter
+  // to [-depth/2, depth/2] to match BoxGeometry's centered origin (the mesh
+  // position math elsewhere in this file assumes a centered box).
+  geometry.translate(0, -depth * 0.5, 0);
+  return geometry;
+}
 
 // A jump-platforming course: a handful of stepping platforms (some static,
 // some sliding back and forth) at increasing height along a fixed direction,
@@ -45,12 +76,17 @@ export class JumpCourse {
       this.basis.fromBasisComponents(direction.right, 0, direction.forward)
     );
 
-    this.geometry = new THREE.BoxGeometry(platformSize.right, platformSize.up, platformSize.forward);
+    this.geometry = buildRoundedPlatformGeometry(
+      platformSize.right,
+      platformSize.forward,
+      platformSize.up,
+      PLATFORM_CORNER_RADIUS
+    );
     this.material = new THREE.MeshStandardMaterial({
       color: PLATFORM_COLOR,
-      roughness: 0.8,
+      roughness: 0.65,
       metalness: 0.05,
-      flatShading: true,
+      flatShading: false,
     });
 
     this.group = new THREE.Group();
