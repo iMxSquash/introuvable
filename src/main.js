@@ -17,6 +17,7 @@ import { createFinderWindow } from './game/FinderWindow.js';
 import { createStartScreen } from './game/StartScreen.js';
 import { createTouchJoystick } from './game/TouchJoystick.js';
 import { createTouchJumpButton } from './game/TouchJumpButton.js';
+import { initLiquidGlass } from './modules/user-interface/LiquidGlass.js';
 
 const WORLD_SIZE = 70;
 const DEFAULT_FILE_NAME = 'page.html';
@@ -397,6 +398,8 @@ function start({
 const theme = getRequestedTheme();
 document.documentElement.dataset.theme = theme;
 
+const liquidGlass = initLiquidGlass();
+
 const physicsWorld = await createPhysicsWorld();
 
 const scene = new Scene();
@@ -436,6 +439,7 @@ createHudView({
   uiState: fragmentSystem.uiState,
   notifications: fragmentSystem.notifications,
   fileName: fragmentSystem.fileName,
+  attachLiquidGlass: liquidGlass.attach,
 });
 
 const gameProgress = new GameProgress();

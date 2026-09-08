@@ -25,7 +25,7 @@ function formatFragmentCounter(collectedCount, state) {
   return `${collectedCount}/${state.totalCount}`;
 }
 
-function renderToasts(container, items) {
+function renderToasts(container, items, attachLiquidGlass) {
   if (!container) return;
 
   const nextIds = new Set(items.map((item) => String(item.id)));
@@ -39,10 +39,11 @@ function renderToasts(container, items) {
     if (existingIds.has(id)) continue;
 
     const toast = document.createElement('div');
-    toast.className = `toast toast--${item.type}`;
+    toast.className = `toast toast--${item.type} liquid-glass`;
     toast.dataset.toastId = id;
     toast.textContent = item.content;
     container.appendChild(toast);
+    attachLiquidGlass(toast);
   }
 }
 
@@ -59,7 +60,13 @@ function triggerCollectPulse(documentRef, selectors) {
   }
 }
 
-export function createHudView({ uiState, notifications, fileName, documentRef = document }) {
+export function createHudView({
+  uiState,
+  notifications,
+  fileName,
+  documentRef = document,
+  attachLiquidGlass = () => {},
+}) {
   const hudRenderer = new DomHudRenderer(uiState, [], documentRef);
   const pathFormatter = formatFinderPath(fileName);
   hudRenderer.bindText('#finder-path', 'desktopRevealCount', pathFormatter);
@@ -75,7 +82,7 @@ export function createHudView({ uiState, notifications, fileName, documentRef = 
   });
 
   const toastContainer = documentRef.getElementById('toast-container');
-  notifications.subscribe((visible) => renderToasts(toastContainer, visible), true);
+  notifications.subscribe((visible) => renderToasts(toastContainer, visible, attachLiquidGlass), true);
 
   return hudRenderer;
 }
