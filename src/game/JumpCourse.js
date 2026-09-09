@@ -1,11 +1,22 @@
 import * as THREE from 'three';
-import { TRASH_GRAY } from './Palette.js';
 import { createContactShadow } from './ContactShadow.js';
+import { createKeycapPlatformModel } from './KeycapPlatformMesh.js';
 import { disposeObject3D } from '../modules/world/Object3DUtils.js';
 
-const PLATFORM_COLOR = TRASH_GRAY;
 const PLATFORM_COLLIDER_FRICTION = 0.9;
 const CONTACT_SHADOW_RADIUS = 3.2;
+
+// Rotates a local (right, forward) offset by a yaw around the up axis - same
+// technique as DesktopEnvironment.js's rotatePlanarOffsetByYaw, used here to
+// place the course-end folder's tab collider in world space.
+function rotatePlanarOffsetByYaw(localRight, localForward, yaw) {
+  const cos = Math.cos(yaw);
+  const sin = Math.sin(yaw);
+  return {
+    right: localRight * cos - localForward * sin,
+    forward: localRight * sin + localForward * cos,
+  };
+}
 
 // A jump-platforming course: a handful of stepping platforms (some static,
 // some sliding back and forth) at increasing height along a fixed direction,
@@ -24,6 +35,8 @@ export class JumpCourse {
     objectRotation,
     createFolderMesh,
     folderBodySize,
+    folderTabSize,
+    folderTabLocalOffset,
     direction,
     entryDistance,
     platformSize,
@@ -37,6 +50,8 @@ export class JumpCourse {
     this.objectRotation = objectRotation;
     this.createFolderMesh = createFolderMesh;
     this.folderBodySize = folderBodySize;
+    this.folderTabSize = folderTabSize;
+    this.folderTabLocalOffset = folderTabLocalOffset;
     this.direction = direction;
     this.platformSize = platformSize;
     this.keepoutRadius = keepoutRadius;
@@ -44,14 +59,6 @@ export class JumpCourse {
     this.yaw = this.basis.forwardToYaw(
       this.basis.fromBasisComponents(direction.right, 0, direction.forward)
     );
-
-    this.geometry = new THREE.BoxGeometry(platformSize.right, platformSize.up, platformSize.forward);
-    this.material = new THREE.MeshStandardMaterial({
-      color: PLATFORM_COLOR,
-      roughness: 0.8,
-      metalness: 0.05,
-      flatShading: true,
-    });
 
     this.group = new THREE.Group();
     this.physicsWorld = null;
@@ -127,10 +134,8 @@ export class JumpCourse {
 
   create() {
     for (const element of this.platformElements) {
-      const mesh = new THREE.Mesh(this.geometry, this.material);
+      const mesh = createKeycapPlatformModel({ size: this.platformSize, moving: Boolean(element.moving) });
       mesh.quaternion.copy(this._rotation(this.yaw));
-      mesh.castShadow = true;
-      mesh.receiveShadow = true;
       mesh.add(createContactShadow({ radius: CONTACT_SHADOW_RADIUS, basis: this.basis }));
       this.group.add(mesh);
       element.mesh = mesh;
@@ -274,6 +279,23 @@ export class JumpCourse {
       spanForward: this.folderBodySize.forward,
     };
     this.physicsColliders.push(this.createStaticCuboidCollider(folderBox, this._rotation(this.yaw), PLATFORM_COLLIDER_FRICTION));
+
+    // The tab sits above the body's own roof and previously had no collider
+    // of its own (see DesktopEnvironment.js's matching fix for desktop folders).
+    const tabWorldOffset = rotatePlanarOffsetByYaw(
+      this.folderTabLocalOffset.right,
+      this.folderTabLocalOffset.forward,
+      this.yaw
+    );
+    const tabBox = {
+      right: this.folderPlanar.right + tabWorldOffset.right,
+      up: this.floorUp + this.folderTabLocalOffset.up,
+      forward: this.folderPlanar.forward + tabWorldOffset.forward,
+      spanRight: this.folderTabSize.right,
+      spanUp: this.folderTabSize.up,
+      spanForward: this.folderTabSize.forward,
+    };
+    this.physicsColliders.push(this.createStaticCuboidCollider(tabBox, this._rotation(this.yaw), PLATFORM_COLLIDER_FRICTION));
 
     return this.physicsColliders;
   }

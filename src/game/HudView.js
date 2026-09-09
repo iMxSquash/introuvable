@@ -25,7 +25,7 @@ function formatFragmentCounter(collectedCount, state) {
   return `${collectedCount}/${state.totalCount}`;
 }
 
-function renderToasts(container, items) {
+function renderToasts(container, items, attachLiquidGlass) {
   if (!container) return;
 
   const nextIds = new Set(items.map((item) => String(item.id)));
@@ -39,14 +39,34 @@ function renderToasts(container, items) {
     if (existingIds.has(id)) continue;
 
     const toast = document.createElement('div');
-    toast.className = 'toast';
+    toast.className = `toast toast--${item.type} liquid-glass`;
     toast.dataset.toastId = id;
     toast.textContent = item.content;
     container.appendChild(toast);
+    attachLiquidGlass(toast);
   }
 }
 
-export function createHudView({ uiState, notifications, fileName, documentRef = document }) {
+// Briefly pulses the given HUD pills so a fragment pickup draws the eye,
+// even on elements (the Finder path bar) whose text doesn't always change
+// visibly on every pickup (e.g. between two folder-segment reveals).
+function triggerCollectPulse(documentRef, selectors) {
+  for (const selector of selectors) {
+    const element = documentRef.querySelector(selector);
+    if (!element) continue;
+    element.classList.remove('is-pulsing');
+    void element.offsetWidth; // force reflow so the animation restarts if still running
+    element.classList.add('is-pulsing');
+  }
+}
+
+export function createHudView({
+  uiState,
+  notifications,
+  fileName,
+  documentRef = document,
+  attachLiquidGlass = () => {},
+}) {
   const hudRenderer = new DomHudRenderer(uiState, [], documentRef);
   const pathFormatter = formatFinderPath(fileName);
   hudRenderer.bindText('#finder-path', 'desktopRevealCount', pathFormatter);
@@ -55,8 +75,14 @@ export function createHudView({ uiState, notifications, fileName, documentRef = 
   hudRenderer.attach();
   hudRenderer.render(uiState.getState());
 
+  uiState.subscribe((state, changedKeys) => {
+    if (changedKeys.includes('collectedCount')) {
+      triggerCollectPulse(documentRef, ['#finder-path', '#fragment-counter']);
+    }
+  });
+
   const toastContainer = documentRef.getElementById('toast-container');
-  notifications.subscribe((visible) => renderToasts(toastContainer, visible), true);
+  notifications.subscribe((visible) => renderToasts(toastContainer, visible, attachLiquidGlass), true);
 
   return hudRenderer;
 }

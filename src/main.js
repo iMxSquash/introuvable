@@ -1,11 +1,12 @@
 import RAPIER from '@dimforge/rapier3d-compat';
-import { PCFSoftShadowMap, PerspectiveCamera, Scene, WebGLRenderer } from 'three';
+import { ACESFilmicToneMapping, PCFSoftShadowMap, PerspectiveCamera, Scene, WebGLRenderer } from 'three';
 import { DEFAULT_WORLD_BASIS } from './modules/math/WorldBasis.js';
 import { Clock } from './modules/math/TimeUtils.js';
 import { clamp } from './modules/math/ScalarUtils.js';
 import { PositionFollowCameraRig } from './modules/camera/PositionFollowCameraRig.js';
 import { AimResolver } from './modules/gameplay/AimResolver.js';
 import { GroundClickIndicator } from './modules/world/visual-effects/GroundClickIndicator.js';
+import { ACCENT_BLUE, ACCENT_BLUE_SOFT } from './game/Palette.js';
 import { DesktopEnvironment } from './game/DesktopEnvironment.js';
 import { PlayerCursor } from './game/PlayerCursor.js';
 import { FragmentSystem } from './game/FragmentSystem.js';
@@ -16,6 +17,7 @@ import { createFinderWindow } from './game/FinderWindow.js';
 import { createStartScreen } from './game/StartScreen.js';
 import { createTouchJoystick } from './game/TouchJoystick.js';
 import { createTouchJumpButton } from './game/TouchJumpButton.js';
+import { initLiquidGlass } from './modules/user-interface/LiquidGlass.js';
 
 const WORLD_SIZE = 70;
 const DEFAULT_FILE_NAME = 'page.html';
@@ -71,6 +73,8 @@ function createRenderer(canvas) {
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, MAX_PIXEL_RATIO));
   renderer.shadowMap.enabled = true;
   renderer.shadowMap.type = PCFSoftShadowMap;
+  renderer.toneMapping = ACESFilmicToneMapping;
+  renderer.toneMappingExposure = 1.0;
   return renderer;
 }
 
@@ -266,7 +270,12 @@ function setupClickToMove({ canvas, camera, playerCursor, environment, scene, ba
     if (!aim.hasHit) return;
 
     playerCursor.setMoveTarget(aim.hitPosition);
-    const indicator = new GroundClickIndicator({ position: aim.hitPosition, basis });
+    const indicator = new GroundClickIndicator({
+      position: aim.hitPosition,
+      basis,
+      color: ACCENT_BLUE,
+      accentColor: ACCENT_BLUE_SOFT,
+    });
     scene.add(indicator.group);
     clickIndicators.push(indicator);
   });
@@ -389,6 +398,8 @@ function start({
 const theme = getRequestedTheme();
 document.documentElement.dataset.theme = theme;
 
+const liquidGlass = initLiquidGlass();
+
 const physicsWorld = await createPhysicsWorld();
 
 const scene = new Scene();
@@ -428,6 +439,7 @@ createHudView({
   uiState: fragmentSystem.uiState,
   notifications: fragmentSystem.notifications,
   fileName: fragmentSystem.fileName,
+  attachLiquidGlass: liquidGlass.attach,
 });
 
 const gameProgress = new GameProgress();

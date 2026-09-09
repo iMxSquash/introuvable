@@ -8,7 +8,7 @@ import { GeneralObjectModelController } from '../modules/actor-motion/GeneralObj
 import { DEFAULT_WORLD_BASIS } from '../modules/math/WorldBasis.js';
 import { createCursorModel } from './CursorMesh.js';
 
-const CURSOR_RADIUS = 0.75;
+const CURSOR_RADIUS = 1.1;
 const CURSOR_HALF_HEIGHT = 0.5;
 const WALK_SPEED = 9;
 const CURSOR_STOP_RADIUS = 0.4;

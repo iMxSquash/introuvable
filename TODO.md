@@ -182,3 +182,11 @@ Le jeu doit être **autonome** mais accepter le contexte passé par le portfolio
 | `world/object/PickupObject` + `factory/PickupVisualFactory` | fragments à collecter | **factory adaptée** |
 | `behavior/AgentPathNavigator`, `WaypointProgressTracker`, `NearbyAvoidanceSteering` | patrouilles des gardiens | tel quel |
 | `user-interface/UiStateModel`, `DomHudRenderer`, `NotificationQueue`, `StorageSettingsStore` | HUD, toasts, persistance | tel quel |
+
+
+
+
+
+améliorer l'ui (éléments de décors, curseur de souris, ennemis) avec ui/ux pro max
+
+plus de gamification lors qu'on trouve un fragement (la partie en haut à gauche n'attire pas assez l'oeil quand on gagne un fragement)

@@ -12,16 +12,17 @@
     <link rel="stylesheet" href="/src/style.css" />
   </head>
   <body>
+    <svg id="liquid-glass-defs" width="0" height="0" style="position: absolute" aria-hidden="true" focusable="false"></svg>
     <canvas id="game-canvas"></canvas>
     <div class="hud">
-      <div id="finder-path" class="hud__finder-path"></div>
-      <div id="fragment-counter" class="hud__fragment-counter"></div>
+      <div id="finder-path" class="hud__finder-path liquid-glass"></div>
+      <div id="fragment-counter" class="hud__fragment-counter liquid-glass"></div>
     </div>
     <div id="toast-container" class="toast-container" aria-live="polite"></div>
-    <div id="touch-joystick" class="touch-joystick" aria-hidden="true">
+    <div id="touch-joystick" class="touch-joystick liquid-glass" aria-hidden="true">
       <div id="touch-joystick-thumb" class="touch-joystick__thumb"></div>
     </div>
-    <button id="touch-jump-button" class="touch-jump-button" type="button" aria-hidden="true" aria-label="Sauter">
+    <button id="touch-jump-button" class="touch-jump-button liquid-glass" type="button" aria-hidden="true" aria-label="Sauter">
       Saut
     </button>
     <div id="rotate-device-overlay" class="rotate-device-overlay" role="status" aria-live="polite">
@@ -30,15 +31,19 @@
         <p class="rotate-device-overlay__message">Tournez votre appareil en mode paysage pour jouer</p>
       </div>
     </div>
-    <div id="start-screen" class="start-screen" role="button" tabindex="0" aria-label="Cliquer pour rechercher le fichier">
-      <div class="start-screen__panel">
-        <p class="start-screen__message">Le fichier que vous cherchiez a été déplacé dans la Corbeille.</p>
-        <p class="start-screen__prompt">Cliquez pour rechercher le fichier</p>
+    <div id="start-screen" class="start-screen">
+      <div class="start-screen__panel liquid-glass liquid-glass--lg">
+        <svg class="start-screen__icon" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+          <circle cx="10" cy="10" r="7" stroke="#0a84ff" stroke-width="2.4" />
+          <line x1="15.15" y1="15.15" x2="21" y2="21" stroke="#0a84ff" stroke-width="2.4" stroke-linecap="round" />
+        </svg>
+        <p class="start-screen__title">Le fichier que vous cherchiez a été déplacé dans la Corbeille.</p>
+        <button type="button" id="start-screen-cta" class="start-screen__cta">Rechercher le fichier</button>
         <p id="start-screen-restored-count" class="start-screen__restored-count"></p>
       </div>
     </div>
     <div id="finder-window-overlay" class="finder-window-overlay" hidden>
-      <div class="finder-window" role="dialog" aria-modal="true" aria-labelledby="finder-window-title">
+      <div class="finder-window liquid-glass liquid-glass--lg" role="dialog" aria-modal="true" aria-labelledby="finder-window-title">
         <div class="finder-window__titlebar">
           <span class="finder-window__dot finder-window__dot--red"></span>
           <span class="finder-window__dot finder-window__dot--yellow"></span>

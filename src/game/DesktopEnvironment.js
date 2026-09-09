@@ -4,8 +4,7 @@ import { DEFAULT_PRNG } from '../modules/math/RandomUtils.js';
 import { disposeObject3D } from '../modules/world/Object3DUtils.js';
 import { createWorldBoundsColliders } from '../modules/world/environment/WorldBoundsColliderFactory.js';
 import { SpawnAreaSampler, SPAWN_REGION_TYPES } from '../modules/world/environment/SpawnAreaSampler.js';
-import { FOLDER_BLUE } from './Palette.js';
-import { createContactShadow } from './ContactShadow.js';
+import { createFolderPlatformModel } from './FolderPlatformMesh.js';
 import { JumpCourse } from './JumpCourse.js';
 
 // Provisional macOS-ish tones. The real wallpaper texture is added once the
@@ -14,11 +13,33 @@ import { JumpCourse } from './JumpCourse.js';
 // touching this class.
 const PLACEHOLDER_GROUND_COLOR = 0x8fadd1;
 const PLACEHOLDER_SKY_COLOR = 0xc7d7ea;
-const FOLDER_COLOR = FOLDER_BLUE;
-const FOLDER_SHADOW_RADIUS = 3.2;
 
+// Kept in sync with the icon_folder.glb model built in FolderPlatformMesh.js
+// (body 4.4x3.0x3.2, tab 1.85x0.66x1.6, tab flush with the body's left/back
+// edges sitting on its roof) - these size/offset constants drive the Rapier
+// colliders in createPhysicsColliders(), decoupled from the visual mesh.
 const FOLDER_BODY_SIZE = Object.freeze({ right: 4.4, up: 3.0, forward: 3.2 });
 const FOLDER_TAB_SIZE = Object.freeze({ right: 1.85, up: 0.66, forward: 1.6 });
+// Tab position relative to the folder body's own center (right/up/forward,
+// pre-yaw-rotation) - shared by the mesh (createFolderMesh) and the tab's
+// own Rapier collider (createPhysicsColliders) so they never drift apart.
+const FOLDER_TAB_LOCAL_OFFSET = Object.freeze({
+  right: -(FOLDER_BODY_SIZE.right * 0.5 - FOLDER_TAB_SIZE.right * 0.5),
+  up: FOLDER_BODY_SIZE.up + FOLDER_TAB_SIZE.up * 0.5,
+  forward: -(FOLDER_BODY_SIZE.forward * 0.5 - FOLDER_TAB_SIZE.forward * 0.5),
+});
+
+// Rotates a local (right, forward) offset by a yaw around the up axis -
+// used to place a folder's tab collider in world space, matching however
+// the folder itself (body + tab mesh) is rotated.
+function rotatePlanarOffsetByYaw(localRight, localForward, yaw) {
+  const cos = Math.cos(yaw);
+  const sin = Math.sin(yaw);
+  return {
+    right: localRight * cos - localForward * sin,
+    forward: localRight * sin + localForward * cos,
+  };
+}
 const FOLDER_GRID_SPACING = 13;
 const FOLDER_GRID_RADIUS_CELLS = 2;
 const FOLDER_JITTER = 3;
@@ -99,6 +120,7 @@ const THEME_PALETTES = {
   light: {
     skyColor: PLACEHOLDER_SKY_COLOR,
     groundColor: PLACEHOLDER_GROUND_COLOR,
+    groundColorCenter: 0xa8c6e8,
     ambientIntensity: 0.65,
     directionalColor: 0xfff3e0,
     directionalIntensity: 1.15,
@@ -106,30 +128,39 @@ const THEME_PALETTES = {
   dark: {
     skyColor: 0x1c2230,
     groundColor: 0x3a4152,
+    groundColorCenter: 0x4a5468,
     ambientIntensity: 0.42,
     directionalColor: 0xdce6ff,
     directionalIntensity: 0.85,
   },
 };
 
-const folderBodyGeometry = new THREE.BoxGeometry(
-  FOLDER_BODY_SIZE.right,
-  FOLDER_BODY_SIZE.up,
-  FOLDER_BODY_SIZE.forward
-);
-const folderTabGeometry = new THREE.BoxGeometry(
-  FOLDER_TAB_SIZE.right,
-  FOLDER_TAB_SIZE.up,
-  FOLDER_TAB_SIZE.forward
-);
-// Folders are visually identical low-poly buildings: one shared material for
-// every instance instead of one per folder.
-const folderMaterial = new THREE.MeshStandardMaterial({
-  color: FOLDER_COLOR,
-  roughness: 0.75,
-  metalness: 0.05,
-  flatShading: true,
-});
+const GROUND_TEXTURE_SIZE = 512;
+const groundTextureCache = new Map();
+// Procedural radial-gradient ground texture (center -> edge), reused until a
+// real wallpaper asset exists (see wallpaperTexture). The edge stop reuses
+// the theme's own groundColor/skyColor tone so the gradient blends into the
+// existing fog instead of creating a seam. Cached per theme's color pair.
+function getGroundTexture(centerColorHex, edgeColorHex) {
+  const key = `${centerColorHex}:${edgeColorHex}`;
+  const cached = groundTextureCache.get(key);
+  if (cached) return cached;
+
+  const canvas = document.createElement('canvas');
+  canvas.width = GROUND_TEXTURE_SIZE;
+  canvas.height = GROUND_TEXTURE_SIZE;
+  const context = canvas.getContext('2d');
+  const center = GROUND_TEXTURE_SIZE * 0.5;
+  const gradient = context.createRadialGradient(center, center, 0, center, center, center);
+  gradient.addColorStop(0, `#${centerColorHex.toString(16).padStart(6, '0')}`);
+  gradient.addColorStop(1, `#${edgeColorHex.toString(16).padStart(6, '0')}`);
+  context.fillStyle = gradient;
+  context.fillRect(0, 0, GROUND_TEXTURE_SIZE, GROUND_TEXTURE_SIZE);
+
+  const texture = new THREE.CanvasTexture(canvas);
+  groundTextureCache.set(key, texture);
+  return texture;
+}
 
 function buildFolderGridCells(worldSize, prng, courseKeepoutPoints) {
   const halfSize = worldSize * 0.5 - FOLDER_WORLD_MARGIN;
@@ -184,6 +215,8 @@ export class DesktopEnvironment {
         objectRotation: this.objectRotation,
         createFolderMesh: () => this.createFolderMesh(),
         folderBodySize: FOLDER_BODY_SIZE,
+        folderTabSize: FOLDER_TAB_SIZE,
+        folderTabLocalOffset: FOLDER_TAB_LOCAL_OFFSET,
         fallCaptureRadius: COURSE_FALL_CAPTURE_RADIUS,
         keepoutRadius: COURSE_KEEPOUT_RADIUS,
         ...config,
@@ -249,8 +282,8 @@ export class DesktopEnvironment {
 
   createGround() {
     const material = new THREE.MeshStandardMaterial({
-      color: this.wallpaperTexture ? 0xffffff : this.palette.groundColor,
-      map: this.wallpaperTexture,
+      color: 0xffffff,
+      map: this.wallpaperTexture ?? getGroundTexture(this.palette.groundColorCenter, this.palette.groundColor),
       roughness: 1,
       metalness: 0,
     });
@@ -272,26 +305,7 @@ export class DesktopEnvironment {
   }
 
   createFolderMesh() {
-    const group = new THREE.Group();
-
-    const body = new THREE.Mesh(folderBodyGeometry, folderMaterial);
-    body.position.copy(this.basis.fromBasisComponents(0, FOLDER_BODY_SIZE.up * 0.5, 0));
-    body.castShadow = true;
-    body.receiveShadow = true;
-    group.add(body);
-
-    const tab = new THREE.Mesh(folderTabGeometry, folderMaterial);
-    tab.position.copy(this.basis.fromBasisComponents(
-      -(FOLDER_BODY_SIZE.right * 0.5 - FOLDER_TAB_SIZE.right * 0.5),
-      FOLDER_BODY_SIZE.up + FOLDER_TAB_SIZE.up * 0.5,
-      -(FOLDER_BODY_SIZE.forward * 0.5 - FOLDER_TAB_SIZE.forward * 0.5)
-    ));
-    tab.castShadow = true;
-    group.add(tab);
-
-    group.add(createContactShadow({ radius: FOLDER_SHADOW_RADIUS, basis: this.basis }));
-
-    return group;
+    return createFolderPlatformModel(this.basis);
   }
 
   folderRotation(yaw) {
@@ -445,6 +459,26 @@ export class DesktopEnvironment {
       };
       this.physicsColliders.push(
         this.createStaticCuboidCollider(folderBox, this.folderRotation(folder.yaw), FOLDER_COLLIDER_FRICTION)
+      );
+
+      // The tab sits above the body's own roof (see FOLDER_TAB_LOCAL_OFFSET)
+      // and previously had no collider of its own, letting the player fall
+      // through that corner instead of standing on it.
+      const tabWorldOffset = rotatePlanarOffsetByYaw(
+        FOLDER_TAB_LOCAL_OFFSET.right,
+        FOLDER_TAB_LOCAL_OFFSET.forward,
+        folder.yaw
+      );
+      const tabBox = {
+        right: folder.right + tabWorldOffset.right,
+        up: this.floorUp + FOLDER_TAB_LOCAL_OFFSET.up,
+        forward: folder.forward + tabWorldOffset.forward,
+        spanRight: FOLDER_TAB_SIZE.right,
+        spanUp: FOLDER_TAB_SIZE.up,
+        spanForward: FOLDER_TAB_SIZE.forward,
+      };
+      this.physicsColliders.push(
+        this.createStaticCuboidCollider(tabBox, this.folderRotation(folder.yaw), FOLDER_COLLIDER_FRICTION)
       );
     }
 
