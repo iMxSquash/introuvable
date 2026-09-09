@@ -14,6 +14,9 @@ export const ACCENT_BLUE = 0x0a84ff;
 export const ACCENT_BLUE_SOFT = 0x8ec9ff;
 
 // Two-tone folder icon: lighter front pocket catching the key light, darker
-// back tab reading as "behind" it.
+// back tab reading as "behind" it. No longer read by any JS module - baked
+// directly into the vertex colors/material of public/models/icon_folder.glb
+// (see FolderPlatformMesh.js), kept here as the source-of-truth reference for
+// that asset.
 export const FOLDER_FRONT_BLUE = 0x5aa7f2;
 export const FOLDER_BACK_BLUE = 0x2f6fce;
