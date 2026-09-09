@@ -31,10 +31,14 @@
         <p class="rotate-device-overlay__message">Tournez votre appareil en mode paysage pour jouer</p>
       </div>
     </div>
-    <div id="start-screen" class="start-screen" role="button" tabindex="0" aria-label="Cliquer pour rechercher le fichier">
+    <div id="start-screen" class="start-screen">
       <div class="start-screen__panel liquid-glass liquid-glass--lg">
-        <p class="start-screen__message">Le fichier que vous cherchiez a été déplacé dans la Corbeille.</p>
-        <p class="start-screen__prompt">Cliquez pour rechercher le fichier</p>
+        <svg class="start-screen__icon" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+          <circle cx="10" cy="10" r="7" stroke="#0a84ff" stroke-width="2.4" />
+          <line x1="15.15" y1="15.15" x2="21" y2="21" stroke="#0a84ff" stroke-width="2.4" stroke-linecap="round" />
+        </svg>
+        <p class="start-screen__title">Le fichier que vous cherchiez a été déplacé dans la Corbeille.</p>
+        <button type="button" id="start-screen-cta" class="start-screen__cta">Rechercher le fichier</button>
         <p id="start-screen-restored-count" class="start-screen__restored-count"></p>
       </div>
     </div>
