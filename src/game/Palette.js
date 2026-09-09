@@ -4,6 +4,10 @@
 // most faithful values available rather than an invented guess. Same caveat
 // applies to the two-tone folder split and the ground gradient stops below.
 export const FOLDER_BLUE = 0x3b82f6;
+// No longer read by any JS module (was the jump courses' procedural platform
+// color, now superseded by public/models/keycap.glb's own baked materials -
+// see KeycapPlatformMesh.js) - kept as the generic macOS surface tone for
+// future chrome (windows, sidebars) built the same procedural way.
 export const SURFACE_GRAY = 0x9aa3ab;
 export const OFF_WHITE = 0xf5f3ef;
 
