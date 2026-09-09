@@ -359,7 +359,12 @@ body {
   text-align: center;
   border-radius: 1.1rem;
   font-family: -apple-system, BlinkMacSystemFont, 'Inter', sans-serif;
-  color: var(--panel-text);
+  /* Always white + shadowed rather than theme-following `--panel-text`: the
+     panel sits over a photo wallpaper (and the liquid glass blur lets it
+     show through), so a fixed dark/light color can lose contrast wherever
+     that photo goes light. The shadow keeps it readable over white too. */
+  color: #fff;
+  text-shadow: 0 1px 3px rgb(0 0 0 / 55%), 0 1px 1px rgb(0 0 0 / 40%);
   /* Draggable by its background (see StartScreen.js); the button opts out of
      the drag so it stays a normal click target. */
   cursor: grab;
@@ -439,7 +444,7 @@ body {
 .start-screen__restored-count {
   margin: 0;
   font-size: 0.8rem;
-  color: var(--panel-text-secondary);
+  /* Inherits .start-screen__panel's white + text-shadow. */
 }
 
 @keyframes start-screen-in {
