@@ -12,11 +12,10 @@
     <link rel="stylesheet" href="/src/style.css" />
   </head>
   <body>
-    <svg id="liquid-glass-defs" width="0" height="0" style="position: absolute" aria-hidden="true" focusable="false"></svg>
     <canvas id="game-canvas"></canvas>
     <div class="hud">
-      <div id="finder-path" class="hud__finder-path liquid-glass"></div>
-      <div id="fragment-counter" class="hud__fragment-counter liquid-glass"></div>
+      <div id="finder-path" class="hud__finder-path liquid-glass"><span id="finder-path-text"></span></div>
+      <div id="fragment-counter" class="hud__fragment-counter liquid-glass"><span id="fragment-counter-text"></span></div>
     </div>
     <div id="toast-container" class="toast-container" aria-live="polite"></div>
     <div id="touch-joystick" class="touch-joystick liquid-glass" aria-hidden="true">
@@ -32,7 +31,7 @@
       </div>
     </div>
     <div id="start-screen" class="start-screen">
-      <div class="start-screen__panel liquid-glass liquid-glass--lg">
+      <div class="start-screen__panel liquid-glass">
         <svg class="start-screen__icon" viewBox="0 0 24 24" fill="none" aria-hidden="true">
           <circle cx="10" cy="10" r="7" stroke="#0a84ff" stroke-width="2.4" />
           <line x1="15.15" y1="15.15" x2="21" y2="21" stroke="#0a84ff" stroke-width="2.4" stroke-linecap="round" />
@@ -43,7 +42,7 @@
       </div>
     </div>
     <div id="finder-window-overlay" class="finder-window-overlay" hidden>
-      <div class="finder-window liquid-glass liquid-glass--lg" role="dialog" aria-modal="true" aria-labelledby="finder-window-title">
+      <div class="finder-window liquid-glass" role="dialog" aria-modal="true" aria-labelledby="finder-window-title">
         <div class="finder-window__titlebar">
           <span class="finder-window__dot finder-window__dot--red"></span>
           <span class="finder-window__dot finder-window__dot--yellow"></span>

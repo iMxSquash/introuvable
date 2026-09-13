@@ -455,7 +455,10 @@ fragmentSystem.uiState.subscribe((state) => {
   const elapsedMs = gameStartAtMs == null ? 0 : performance.now() - gameStartAtMs;
   cinematic.play(playerCursor.position, () => {
     gameProgress.recordRestoration(elapsedMs);
-    createFinderWindow({ fileName: fragmentSystem.fileName }).show();
+    createFinderWindow({
+      fileName: fragmentSystem.fileName,
+      attachLiquidGlass: liquidGlass.attach,
+    }).show();
   });
 });
 

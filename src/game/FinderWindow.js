@@ -10,7 +10,12 @@ function openPortfolio() {
   }
 }
 
-export function createFinderWindow({ documentRef = document, fileName, onOpen = openPortfolio }) {
+export function createFinderWindow({
+  documentRef = document,
+  fileName,
+  onOpen = openPortfolio,
+  attachLiquidGlass = () => {},
+}) {
   const overlay = documentRef.getElementById('finder-window-overlay');
   const filenameEl = documentRef.getElementById('finder-window-filename');
   const openButton = documentRef.getElementById('finder-window-open');
@@ -22,6 +27,10 @@ export function createFinderWindow({ documentRef = document, fileName, onOpen = 
   return {
     show() {
       overlay.hidden = false;
+      // The overlay (and `.finder-window` inside it) is `display: none` via
+      // `[hidden]` until this point, so `initLiquidGlass()`'s own startup
+      // scan skipped it (0x0 element) — attach now that it has real layout.
+      attachLiquidGlass(overlay.querySelector('.finder-window'));
     },
   };
 }

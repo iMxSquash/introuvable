@@ -1,220 +1,128 @@
-// --glass-tint-alpha and --glass-blur are read live: they're consumed by a
-// var() the browser re-resolves on its own the instant the custom property
-// changes (see the `liquid-glass` utility and the inline backdropFilter
-// below), so tweaking them needs no rebuild here.
-// --glass-scale, --glass-aberration and --glass-lens are different: they get
-// baked into this element's SVG filter attributes (feDisplacementMap scale,
-// the feImage displacement map), which cannot hold a var(). rebuild() below
-// is the only place that re-reads them, and it only runs on attach and on
-// resize — editing them takes effect on the next full page load (or the
-// next resize), not instantly. A live-tuning UI would need to call rebuild()
-// itself after changing them, the way the skill's reference demo's slider
-// panel calls `refraction.update({ scale, aberration, mode })`.
-const SVG_NS = 'http://www.w3.org/2000/svg';
-const DEFS_ID = 'liquid-glass-defs';
-const DEFAULT_SCALE = 40;
-const DEFAULT_ABERRATION = 8;
-const DEFAULT_LENS = 'diagonal';
-const MAX_EDGE_WIDTH = 42;
-// Softens the backdrop just before it's displaced (see refraction.md); not
-// one of the tunable knobs, kept fixed like the reference implementation.
-const PREFILTER_BLUR = 7;
+import { LiquidGlassEngine } from 'quick-liquid';
 
-function supportsUrlBackdropFilter(documentRef) {
-  const probe = documentRef.createElement('div');
-  probe.style.cssText = 'backdrop-filter: url(#probe)';
-  return probe.style.backdropFilter === 'url(#probe)' || probe.style.backdropFilter === 'url("#probe")';
+// Per-role LiquidGlassConfig presets, derived from the apple-design skill's
+// Component -> Config Mapping table
+// (.claude/skills/apple-design/references/web-liquid-glass.md), adapted to
+// this game's actual glass surfaces. Centralized here as the single source
+// of truth, replacing the old CSS custom properties (--glass-tint,
+// --glass-blur, --glass-scale, etc.).
+//
+// Two known integration hazards with quick-liquid's DOM wrapping (the engine
+// moves a host's original children into its own `.ql-content` div on mount):
+//  - Never bind text directly to a `.liquid-glass` host via `element.textContent`
+//    (e.g. a generic text-binding helper) — that wipes the engine's injected
+//    lens/tint/sheen/rim layers on every update. Target an inner `-text` span
+//    instead (see HudView.js / index.html's `#finder-path-text`).
+//  - If a host's original children rely on being absolutely positioned
+//    against the host itself (e.g. a centered thumb inside a circular base),
+//    `.ql-content` (`position: relative`, no explicit size) collapses to the
+//    host's width but 0 height, breaking that positioning. Fix per-selector
+//    in CSS (see `.touch-joystick .ql-content` in style.css), not globally —
+//    other hosts size themselves from their (flowed) content and would break
+//    if `.ql-content` were made position: absolute everywhere.
+
+// Project-wide policy: no surface reflection, and chromatic aberration is
+// reserved for the ~2 most prominent/least-frequent panels per viewport
+// (budget rule) — every preset starts from this and opts back in explicitly.
+const GLASS_DEFAULTS = {
+  chromaticAberration: 0,
+  specularStrength: 0,
+};
+
+// Small HUD readout chips: finder path breadcrumb, fragment counter.
+const HUD_CHIP_CONFIG = {
+  ...GLASS_DEFAULTS,
+  material: 'thin',
+  borderRadius: 999, // matches the chips' own `border-radius: 999px` (pill)
+};
+
+// Circular touch controls (mobile only). A borderRadius this large is
+// clamped by the engine to half of the element's own box (same rule as CSS
+// border-radius), so it renders as a perfect circle regardless of the
+// joystick base vs. jump button's actual pixel size, and the engine's
+// bezel/lens geometry is computed from that same clamped radius.
+const TOUCH_CONTROL_CONFIG = {
+  ...GLASS_DEFAULTS,
+  material: 'regular',
+  borderRadius: 999,
+};
+
+// The two most prominent, least-frequent glass surfaces in the game: thick
+// material, and where the chromatic-aberration budget is spent. Named
+// separately (rather than one shared constant spread-and-overridden at each
+// call site) since each has its own fixed `borderRadius` matching its own
+// CSS (`1.1rem` / `0.75rem`).
+const START_SCREEN_PANEL_CONFIG = {
+  ...GLASS_DEFAULTS,
+  material: 'thick',
+  chromaticAberration: 0.25,
+  borderRadius: 18, // matches `.start-screen__panel`'s `1.1rem`
+};
+
+const FINDER_WINDOW_CONFIG = {
+  ...GLASS_DEFAULTS,
+  material: 'thick',
+  chromaticAberration: 0.25,
+  borderRadius: 12, // matches `.finder-window`'s `0.75rem`
+};
+
+// Toast notifications: small, transient chips.
+const TOAST_CONFIG = {
+  ...GLASS_DEFAULTS,
+  material: 'thin',
+  borderRadius: 12, // matches `.toast`'s `border-radius: 0.75rem`
+};
+
+function resolveConfig(el) {
+  if (el.id === 'finder-path' || el.id === 'fragment-counter') return HUD_CHIP_CONFIG;
+  if (el.id === 'touch-joystick' || el.id === 'touch-jump-button') return TOUCH_CONTROL_CONFIG;
+  if (el.classList.contains('start-screen__panel')) return START_SCREEN_PANEL_CONFIG;
+  if (el.classList.contains('finder-window')) return FINDER_WINDOW_CONFIG;
+  if (el.classList.contains('toast')) return TOAST_CONFIG;
+  return HUD_CHIP_CONFIG;
 }
 
-function prefersOpaqueGlass(windowRef) {
-  return (
-    windowRef.matchMedia('(prefers-reduced-transparency: reduce)').matches ||
-    windowRef.matchMedia('(prefers-contrast: more)').matches
-  );
-}
-
-// Signed distance to a rounded rectangle centered in (w, h); negative inside.
-function roundedRectSdf(x, y, w, h, r) {
-  const qx = Math.abs(x - w / 2) - (w / 2 - r);
-  const qy = Math.abs(y - h / 2) - (h / 2 - r);
-  return Math.hypot(Math.max(qx, 0), Math.max(qy, 0)) + Math.min(Math.max(qx, qy), 0) - r;
-}
-
-// mode 'diagonal': constant down-right displacement direction, matches the
-// sheen (glass lit from the top-left), refracting on all four edges alike.
-// mode 'symmetric': outward SDF normals, a classic magnifier rim, better
-// suited to perfectly circular controls (the touch joystick, jump button).
-function buildDisplacementMap(documentRef, w, h, r, edge, mode) {
-  const canvas = documentRef.createElement('canvas');
-  canvas.width = w;
-  canvas.height = h;
-  const ctx = canvas.getContext('2d');
-  const img = ctx.createImageData(w, h);
-  const data = img.data;
-
-  for (let y = 0; y < h; y += 1) {
-    for (let x = 0; x < w; x += 1) {
-      const inside = -roundedRectSdf(x + 0.5, y + 0.5, w, h, r);
-      let nx = 0;
-      let ny = 0;
-
-      if (inside < edge) {
-        const t = Math.min(1, Math.max(0, 1 - inside / edge));
-        const mag = t * t; // full strength at the border, eased to zero at the band's inner limit
-        if (mode === 'symmetric') {
-          const gx = roundedRectSdf(x + 1.5, y + 0.5, w, h, r) - roundedRectSdf(x - 0.5, y + 0.5, w, h, r);
-          const gy = roundedRectSdf(x + 0.5, y + 1.5, w, h, r) - roundedRectSdf(x + 0.5, y - 0.5, w, h, r);
-          const len = Math.hypot(gx, gy) || 1;
-          nx = (gx / len) * mag;
-          ny = (gy / len) * mag;
-        } else {
-          nx = Math.SQRT1_2 * mag;
-          ny = Math.SQRT1_2 * mag;
-        }
-      }
-
-      const i = (y * w + x) * 4;
-      data[i] = Math.round(128 + nx * 127);
-      data[i + 1] = Math.round(128 + ny * 127);
-      data[i + 2] = 128;
-      data[i + 3] = 255;
-    }
-  }
-
-  ctx.putImageData(img, 0, 0);
-  return canvas.toDataURL();
-}
-
-function buildRefractionFilter(documentRef, id) {
-  const filter = documentRef.createElementNS(SVG_NS, 'filter');
-  filter.setAttribute('id', id);
-  filter.setAttribute('color-interpolation-filters', 'sRGB');
-
-  const feImage = documentRef.createElementNS(SVG_NS, 'feImage');
-  feImage.setAttribute('preserveAspectRatio', 'none');
-  feImage.setAttribute('result', 'map');
-  filter.appendChild(feImage);
-
-  const feBlur = documentRef.createElementNS(SVG_NS, 'feGaussianBlur');
-  feBlur.setAttribute('in', 'SourceGraphic');
-  feBlur.setAttribute('stdDeviation', String(PREFILTER_BLUR));
-  feBlur.setAttribute('result', 'soft');
-  filter.appendChild(feBlur);
-
-  // Chromatic aberration: three displacement passes (R strongest, B weakest),
-  // each isolated to one color channel, recombined with screen blending so
-  // rainbow fringes only appear along the refracting band.
-  const channelMatrices = [
-    ['R', '1 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 1 0'],
-    ['G', '0 0 0 0 0  0 1 0 0 0  0 0 0 0 0  0 0 0 1 0'],
-    ['B', '0 0 0 0 0  0 0 0 0 0  0 0 1 0 0  0 0 0 1 0'],
-  ];
-  const displacements = channelMatrices.map(([channel, matrixValues]) => {
-    const displacement = documentRef.createElementNS(SVG_NS, 'feDisplacementMap');
-    displacement.setAttribute('in', 'soft');
-    displacement.setAttribute('in2', 'map');
-    displacement.setAttribute('xChannelSelector', 'R');
-    displacement.setAttribute('yChannelSelector', 'G');
-    filter.appendChild(displacement);
-
-    const colorMatrix = documentRef.createElementNS(SVG_NS, 'feColorMatrix');
-    colorMatrix.setAttribute('values', matrixValues);
-    colorMatrix.setAttribute('result', `chan${channel}`);
-    filter.appendChild(colorMatrix);
-
-    return displacement;
-  });
-
-  const blendRG = documentRef.createElementNS(SVG_NS, 'feBlend');
-  blendRG.setAttribute('in', 'chanR');
-  blendRG.setAttribute('in2', 'chanG');
-  blendRG.setAttribute('mode', 'screen');
-  blendRG.setAttribute('result', 'chanRG');
-  filter.appendChild(blendRG);
-
-  const blendRGB = documentRef.createElementNS(SVG_NS, 'feBlend');
-  blendRGB.setAttribute('in', 'chanRG');
-  blendRGB.setAttribute('in2', 'chanB');
-  blendRGB.setAttribute('mode', 'screen');
-  filter.appendChild(blendRGB);
-
-  return { filter, feImage, displacements };
-}
-
-let nextFilterId = 0;
-
-function attachRefraction(el, { documentRef, windowRef, defs }) {
-  const id = `liquid-glass-refraction-${(nextFilterId += 1)}`;
-  const { filter, feImage, displacements } = buildRefractionFilter(documentRef, id);
-  defs.appendChild(filter);
-
-  function rebuild() {
-    const w = Math.round(el.offsetWidth);
-    const h = Math.round(el.offsetHeight);
-    if (w <= 0 || h <= 0) return;
-
-    const style = windowRef.getComputedStyle(el);
-    const scale = parseFloat(style.getPropertyValue('--glass-scale')) || DEFAULT_SCALE;
-    const aberration = parseFloat(style.getPropertyValue('--glass-aberration'));
-    const lens = style.getPropertyValue('--glass-lens').trim() || DEFAULT_LENS;
-    const aberrationValue = Number.isNaN(aberration) ? DEFAULT_ABERRATION : aberration;
-
-    // CSS clamps a corner radius to half of the box's own dimension (a pill
-    // or a circle); the raw computed value (e.g. 999px on a capsule button)
-    // does not reflect that clamp, and feeding it straight into the SDF
-    // collapses the whole displacement map into noise.
-    const rawRadius = parseFloat(style.borderTopLeftRadius) || 16;
-    const radius = Math.min(rawRadius, w / 2, h / 2);
-    const edge = Math.min(MAX_EDGE_WIDTH, w / 6, h / 6);
-
-    filter.setAttribute('x', '0');
-    filter.setAttribute('y', '0');
-    filter.setAttribute('width', w);
-    filter.setAttribute('height', h);
-    feImage.setAttribute('x', '0');
-    feImage.setAttribute('y', '0');
-    feImage.setAttribute('width', w);
-    feImage.setAttribute('height', h);
-    feImage.setAttribute('href', buildDisplacementMap(documentRef, w, h, radius, edge, lens));
-
-    displacements[0].setAttribute('scale', scale + aberrationValue);
-    displacements[1].setAttribute('scale', scale);
-    displacements[2].setAttribute('scale', scale - aberrationValue);
-
-    // var() in an inline style resolves against the element, so this keeps
-    // honoring --glass-blur/--glass-saturate/--glass-brightness at every
-    // cascade level (global, subtree, per element) instead of baking them in.
-    const backdrop = `blur(var(--glass-blur, 0px)) url("#${id}") saturate(var(--glass-saturate, 180%)) brightness(var(--glass-brightness, 1.08))`;
-    el.style.backdropFilter = backdrop;
-    el.style.webkitBackdropFilter = backdrop;
-  }
-
-  new windowRef.ResizeObserver(rebuild).observe(el);
-  rebuild();
-
-  return { rebuild };
-}
-
-// Wires Apple-style Liquid Glass refraction onto every `.liquid-glass`
-// element already in the DOM. Chromium only (the only engine that renders
-// `backdrop-filter: url(#svgFilter)`); every other engine, plus users with
-// `prefers-reduced-transparency`/`prefers-contrast`, keeps the plain
-// blur+tint fallback declared in style.css. Returns `attach` so callers can
-// wire up elements created after this ran (e.g. toasts).
+// Wires quick-liquid's LiquidGlassEngine onto every `.liquid-glass` element
+// already in the DOM. The engine's `respectPreferences: true` default
+// already softens/removes refraction and blur under
+// `prefers-reduced-transparency`/`prefers-reduced-motion` and ships its own
+// browser fallback (Chromium gets full SVG refraction, Safari/Firefox keep
+// frost + tint + rim), so none of that is hand-rolled here anymore. Returns
+// `attach` so callers can wire up elements created after this ran (e.g.
+// toasts), or elements that exist but are hidden at startup (touch controls,
+// the Finder window overlay) and shouldn't pay the engine's mount cost
+// (extra DOM layers, matchMedia/ResizeObserver/visibilitychange listeners)
+// until they can actually be seen.
 export function initLiquidGlass({ documentRef = document, windowRef = window } = {}) {
-  const noop = { attach() {} };
-  if (!supportsUrlBackdropFilter(documentRef) || prefersOpaqueGlass(windowRef)) return noop;
+  const engines = new WeakMap();
 
-  const defs = documentRef.getElementById(DEFS_ID);
-  if (!defs) return noop;
-
-  const handles = new WeakMap();
   function attach(el) {
-    if (!el || handles.has(el)) return;
-    handles.set(el, attachRefraction(el, { documentRef, windowRef, defs }));
+    if (!el || engines.has(el)) return;
+    // Skip elements with no layout box yet (display: none) — same guard the
+    // old hand-rolled implementation had. Not marked in `engines`, so a later
+    // `attach(el)` call (once the element is actually shown) can still
+    // succeed instead of being silently swallowed by the has() check above.
+    if (el.offsetWidth === 0 && el.offsetHeight === 0) return;
+    engines.set(el, new LiquidGlassEngine(el, resolveConfig(el)));
   }
 
   documentRef.querySelectorAll('.liquid-glass').forEach(attach);
+
+  // Touch controls are `display: none` until `@media (pointer: coarse)`
+  // matches (see style.css) — retry attaching them exactly when that becomes
+  // true, instead of the alternative of dropping the size guard above and
+  // paying full engine setup for controls a desktop session never shows.
+  const coarsePointerQuery = windowRef.matchMedia?.('(pointer: coarse)');
+  if (coarsePointerQuery) {
+    const attachTouchControls = () => {
+      attach(documentRef.getElementById('touch-joystick'));
+      attach(documentRef.getElementById('touch-jump-button'));
+    };
+    if (coarsePointerQuery.matches) attachTouchControls();
+    coarsePointerQuery.addEventListener('change', (event) => {
+      if (event.matches) attachTouchControls();
+    });
+  }
 
   return { attach };
 }

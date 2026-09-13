@@ -69,9 +69,14 @@ export function createHudView({
 }) {
   const hudRenderer = new DomHudRenderer(uiState, [], documentRef);
   const pathFormatter = formatFinderPath(fileName);
-  hudRenderer.bindText('#finder-path', 'desktopRevealCount', pathFormatter);
-  hudRenderer.bindText('#finder-path', 'fileNameRevealed', pathFormatter);
-  hudRenderer.bindText('#fragment-counter', 'collectedCount', formatFragmentCounter);
+  // Bind to the inner `-text` span, not the `.liquid-glass` host itself:
+  // `DomHudRenderer` writes via `element.textContent = ...`, which would
+  // otherwise wipe out the `LiquidGlassEngine`-injected lens/tint/rim layers
+  // on every update (see LiquidGlass.js) — the host keeps those layers,
+  // only the span's own (childless) text content ever gets replaced.
+  hudRenderer.bindText('#finder-path-text', 'desktopRevealCount', pathFormatter);
+  hudRenderer.bindText('#finder-path-text', 'fileNameRevealed', pathFormatter);
+  hudRenderer.bindText('#fragment-counter-text', 'collectedCount', formatFragmentCounter);
   hudRenderer.attach();
   hudRenderer.render(uiState.getState());
 

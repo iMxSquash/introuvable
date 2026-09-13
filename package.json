@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@dimforge/rapier3d-compat": "0.20.0",
+    "quick-liquid": "^0.1.2",
     "three": "0.185.1"
   },
   "devDependencies": {
